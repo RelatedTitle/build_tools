@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import sys
-sys.path.append('../../scripts')
-import base
 import os
+sys.path.append(os.path.join('..', '..', 'scripts'))
+import base
 import subprocess
 
 def install_deps():

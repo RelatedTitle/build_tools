@@ -93,11 +93,11 @@ def ndk_dir():
 def sdk_dir():
   ndk_path = ndk_dir()
   if (-1 != ndk_path.find("/ndk/")):
-    return ndk_path + "/../.."
-  return ndk_path + "/.."
+    return os.path.join(ndk_path, "../..")
+  return os.path.join(ndk_path, "..")
 
 def toolchain_dir():
-  return ndk_dir() + "/toolchains/llvm/prebuilt/" + host["arch"]
+  return os.path.join(ndk_dir(), "toolchains/llvm/prebuilt", host["arch"])
 
 def prepare_platform(arch, cpp_standard=11):
   target = platforms[arch]["target"]
@@ -112,22 +112,22 @@ def prepare_platform(arch, cpp_standard=11):
   base.set_env("ANDROIDVER", api)
   base.set_env("ANDROID_API", api)
 
-  base.set_env("AR", toolchain + "/bin/llvm-ar")
-  base.set_env("AS", toolchain + "/bin/llvm-as")
-  base.set_env("LD", toolchain + "/bin/ld")
-  base.set_env("RANLIB", toolchain + "/bin/llvm-ranlib")
-  base.set_env("STRIP", toolchain + "/bin/llvm-strip")
+  base.set_env("AR", os.path.join(toolchain, "bin/llvm-ar"))
+  base.set_env("AS", os.path.join(toolchain, "bin/llvm-as"))
+  base.set_env("LD", os.path.join(toolchain, "bin/ld"))
+  base.set_env("RANLIB", os.path.join(toolchain, "bin/llvm-ranlib"))
+  base.set_env("STRIP", os.path.join(toolchain, "bin/llvm-strip"))
 
   base.set_env("CC", target + api + "-clang")
   base.set_env("CXX", target + api + "-clang++")
 
-  ld_flags = "-Wl,--gc-sections,-rpath-link=" + toolchain + "/sysroot/usr/lib/"
+  ld_flags = "-Wl,--gc-sections,-rpath-link=" + os.path.join(toolchain, "sysroot/usr/lib")
   if (23 > get_android_ndk_version_major()):
-    ld_flags += (" -L" + toolchain + "/" + platforms[arch]["old"] + "/lib")
-    ld_flags += (" -L" + toolchain + "/sysroot/usr/lib/" + platforms[arch]["old"] + "/" + api)
+    ld_flags += (" -L" + os.path.join(toolchain, platforms[arch]["old"], "lib"))
+    ld_flags += (" -L" + os.path.join(toolchain, "sysroot/usr/lib", platforms[arch]["old"], api))
 
   base.set_env("LDFLAGS", ld_flags)
-  base.set_env("PATH", toolchain + "/bin" + os.pathsep + base.get_env("PATH"))
+  base.set_env("PATH", os.path.join(toolchain, "bin") + os.pathsep + base.get_env("PATH"))
 
   cflags = [
     "-Os",
@@ -139,7 +139,7 @@ def prepare_platform(arch, cpp_standard=11):
 
     "-fPIC",
 
-    "-I" + toolchain + "/sysroot/usr/include",
+    "-I" + os.path.join(toolchain, "sysroot/usr/include"),
 
     "-D__ANDROID_API__=" + api,
     "-DANDROID"

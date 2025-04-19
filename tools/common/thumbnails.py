@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import sys
-sys.path.append('../../scripts')
-import base
 import os
+sys.path.append(os.path.join('..', '..', 'scripts'))
+import base
 import glob
 
 params = sys.argv[1:]
@@ -22,7 +22,7 @@ directory_output = params[2].replace("\\", "/")
 th_width = params[3]
 th_height = params[4]
 
-output_dir = directory_output + "/[" + str(th_width) + "x" + str(th_height) + "]"
+output_dir = os.path.join(directory_output, "[" + str(th_width) + "x" + str(th_height) + "]")
 if base.is_dir(output_dir):
   base.delete_dir(output_dir)
 base.create_dir(output_dir)
@@ -32,23 +32,23 @@ for file in glob.glob(os.path.join(u"" + directory_input, u'*')):
   input_files.append(file.replace("\\", "/"))
 
 #print(input_files)
-temp_dir = os.getcwd().replace("\\", "/") + "/temp"
+temp_dir = os.path.join(os.getcwd().replace("\\", "/"), "temp")
 if base.is_dir(temp_dir):
   base.delete_dir(temp_dir)
 base.create_dir(temp_dir)
 
 # fonts directory -----------------------------------
-directory_fonts = directory_x2t + "/sdkjs/common"
+directory_fonts = os.path.join(directory_x2t, "sdkjs", "common")
 directory_fonts_local = ""
 if "windows" == base.host_platform():
-  directory_fonts_local = os.getenv("LOCALAPPDATA") + "/ONLYOFFICE/docbuilder"
+  directory_fonts_local = os.path.join(os.getenv("LOCALAPPDATA"), "ONLYOFFICE", "docbuilder")
 else:
-  directory_fonts_local = os.path.expanduser('~') + "/.local/share/ONLYOFFICE/docbuilder"
+  directory_fonts_local = os.path.join(os.path.expanduser('~'), ".local", "share", "ONLYOFFICE", "docbuilder")
 
-if not base.is_file(directory_fonts + "/AllFonts.js") and not base.is_file(directory_fonts_local + "/AllFonts.js"):
+if not base.is_file(os.path.join(directory_fonts, "AllFonts.js")) and not base.is_file(os.path.join(directory_fonts_local, "AllFonts.js")):
   base.cmd_in_dir(directory_x2t, "docbuilder", [], True)
 
-if base.is_file(directory_fonts_local + "/AllFonts.js"):
+if base.is_file(os.path.join(directory_fonts_local, "AllFonts.js")):
   directory_fonts = directory_fonts_local
 # ---------------------------------------------------
 
@@ -90,7 +90,7 @@ for input_file in input_files:
   xml_convert += (u"<m_sFileFrom>" + input_file + u"</m_sFileFrom>")
   xml_convert += (u"<m_sFileTo>" + output_file_tmp + u".zip</m_sFileTo>")
   xml_convert += u"<m_nFormatTo>1029</m_nFormatTo>"
-  xml_convert += (u"<m_sAllFontsPath>" + directory_fonts + u"/AllFonts.js</m_sAllFontsPath>")
+  xml_convert += (u"<m_sAllFontsPath>" + os.path.join(directory_fonts, u"AllFonts.js") + u"</m_sAllFontsPath>")
   xml_convert += (u"<m_sFontDir>" + directory_fonts + u"</m_sFontDir>")
   xml_convert += (u"<m_sJsonParams>" + json_params + u"</m_sJsonParams>")
   xml_convert += u"<m_nDoctParams>1</m_nDoctParams>"
@@ -104,8 +104,8 @@ for input_file in input_files:
   xml_convert += u"<m_nDoctParams>1</m_nDoctParams>"
   xml_convert += (u"<m_sTempDir>" + temp_dir + u"</m_sTempDir>")
   xml_convert += u"</TaskQueueDataConvert>"
-  base.save_as_script(temp_dir + "/to.xml", [xml_convert])
-  base.cmd_in_dir(directory_x2t, "x2t", [temp_dir + "/to.xml"], True)
+  base.save_as_script(os.path.join(temp_dir, "to.xml"), [xml_convert])
+  base.cmd_in_dir(directory_x2t, "x2t", [os.path.join(temp_dir, "to.xml")], True)
   base.delete_dir(temp_dir)
   base.create_dir(temp_dir)
   base.extract_unicode(output_file_tmp + u".zip", output_file_tmp)

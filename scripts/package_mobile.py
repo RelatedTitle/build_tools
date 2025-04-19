@@ -3,6 +3,7 @@
 import package_utils as utils
 import package_common as common
 import package_branding as branding
+import os
 
 def make():
   utils.log_h1("MOBILE")
@@ -13,7 +14,7 @@ def make():
   return
 
 def make_mobile():
-  utils.set_cwd("build_tools/out")
+  utils.set_cwd(os.path.join("build_tools", "out"))
 
   zip_file = "build-" + common.version + "-" + common.build + ".zip"
 
@@ -28,7 +29,7 @@ def make_mobile():
   if common.deploy:
     if ret:
       utils.log_h2("mobile deploy")
-      key = "mobile/android/" + zip_file
+      key = os.path.join("mobile", "android", zip_file)
       ret = utils.s3_upload(zip_file, "s3://" + branding.s3_bucket + "/" + key)
       if ret:
         utils.log("URL: " + branding.s3_base_url + "/" + key)

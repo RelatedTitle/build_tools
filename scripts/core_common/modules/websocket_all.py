@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 import sys
-sys.path.append('../..')
+import os
+sys.path.append(os.path.join('..', '..'))
 import config
 import base
 #import ixwebsocket

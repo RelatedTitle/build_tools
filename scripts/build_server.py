@@ -3,18 +3,19 @@
 import config
 import base
 import datetime
+import os
 
 def make():
   #check server module to build
   if(not config.check_option("module", "server")):
     return
 
-  git_dir = base.get_script_dir() + "/../.."
-  server_dir = base.get_script_dir() + "/../../server"
-  branding_dir = server_dir + "/branding"
+  git_dir = os.path.join(base.get_script_dir(), "..", "..")
+  server_dir = os.path.join(base.get_script_dir(), "..", "..", "server")
+  branding_dir = os.path.join(server_dir, "branding")
 
   if("" != config.option("branding")):
-    branding_dir = git_dir + '/' + config.option("branding") + '/server'
+    branding_dir = os.path.join(git_dir, config.option("branding"), 'server')
 
   build_server_with_addons()
 
@@ -29,14 +30,14 @@ def make():
 
   cur_date = datetime.date.today().strftime("%m/%d/%Y")
 
-  base.replaceInFileRE(server_dir + "/Common/sources/commondefines.js", "const buildNumber = [0-9]*", "const buildNumber = " + build_number)
-  base.replaceInFileRE(server_dir + "/Common/sources/license.js", "const buildDate = '[0-9-/]*'", "const buildDate = '" + cur_date + "'")
-  base.replaceInFileRE(server_dir + "/Common/sources/commondefines.js", "const buildVersion = '[0-9.]*'", "const buildVersion = '" + product_version + "'")
+  base.replaceInFileRE(os.path.join(server_dir, "Common", "sources", "commondefines.js"), "const buildNumber = [0-9]*", "const buildNumber = " + build_number)
+  base.replaceInFileRE(os.path.join(server_dir, "Common", "sources", "license.js"), "const buildDate = '[0-9-/]*'", "const buildDate = '" + cur_date + "'")
+  base.replaceInFileRE(os.path.join(server_dir, "Common", "sources", "commondefines.js"), "const buildVersion = '[0-9.]*'", "const buildVersion = '" + product_version + "'")
 
-  custom_public_key = branding_dir + '/debug.js'
+  custom_public_key = os.path.join(branding_dir, 'debug.js')
 
   if(base.is_exist(custom_public_key)):
-      base.copy_file(custom_public_key, server_dir + '/Common/sources')
+      base.copy_file(custom_public_key, os.path.join(server_dir, 'Common', 'sources'))
 
   pkg_target = "node16"
 
@@ -48,12 +49,12 @@ def make():
   if ("windows" == base.host_platform()):
     pkg_target += "-win"
 
-  base.cmd_in_dir(server_dir + "/DocService", "pkg", [".", "-t", pkg_target, "--options", "max_old_space_size=4096", "-o", "docservice"])
-  base.cmd_in_dir(server_dir + "/FileConverter", "pkg", [".", "-t", pkg_target, "-o", "converter"])
-  base.cmd_in_dir(server_dir + "/Metrics", "pkg", [".", "-t", pkg_target, "-o", "metrics"])
+  base.cmd_in_dir(os.path.join(server_dir, "DocService"), "pkg", [".", "-t", pkg_target, "--options", "max_old_space_size=4096", "-o", "docservice"])
+  base.cmd_in_dir(os.path.join(server_dir, "FileConverter"), "pkg", [".", "-t", pkg_target, "-o", "converter"])
+  base.cmd_in_dir(os.path.join(server_dir, "Metrics"), "pkg", [".", "-t", pkg_target, "-o", "metrics"])
 
-  example_dir = base.get_script_dir() + "/../../document-server-integration/web/documentserver-example/nodejs"
-  base.delete_dir(example_dir  + "/node_modules")
+  example_dir = os.path.join(base.get_script_dir(), "..", "..", "document-server-integration", "web", "documentserver-example", "nodejs")
+  base.delete_dir(os.path.join(example_dir, "node_modules"))
   base.cmd_in_dir(example_dir, "npm", ["ci"])
   base.cmd_in_dir(example_dir, "pkg", [".", "-t", pkg_target, "-o", "example"])
 
@@ -63,11 +64,11 @@ def build_server_with_addons():
   addons.update(base.get_server_addons())
   for addon in addons:
     if (addon):
-      addon_dir = base.get_script_dir() + "/../../" + addon
+      addon_dir = os.path.join(base.get_script_dir(), "..", "..", addon)
       base.cmd_in_dir(addon_dir, "npm", ["ci"])
       base.cmd_in_dir(addon_dir, "npm", ["run", "build"])
 
 def build_server_develop():
-  server_dir = base.get_script_dir() + "/../../server"
+  server_dir = os.path.join(base.get_script_dir(), "..", "..", "server")
   base.cmd_in_dir(server_dir, "npm", ["ci"])
   base.cmd_in_dir(server_dir, "grunt", ["develop", "-v"] + base.server_addons_param())

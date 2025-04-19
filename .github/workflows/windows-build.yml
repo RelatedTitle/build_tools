@@ -1,0 +1,314 @@
+name: Windows Build & Cache - ONLYOFFICE Core Libs
+
+on:
+  push:
+    branches: [main, master]
+  pull_request: {}
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows x64 Core Libraries
+    runs-on: windows-latest
+    timeout-minutes: 360 # Increased timeout for potentially long 3rd party builds
+
+    env:
+      # --- Static Configuration ---
+      REQUIRED_PYTHON_VERSION: "3.9"
+      REQUIRED_VS_VERSION: "2015"
+      REQUIRED_QT_VERSION: "5.9.9"
+      REQUIRED_QT_ARCH: "win64_msvc2015_64" # For aqtinstall/action
+      QT_INSTALL_FOLDER_NAME: "msvc2015_64" # Actual dir name created by Qt install
+      REQUIRED_JAVA_VERSION: "15.0.1"
+      OO_PLATFORM: "win_64"
+      OO_MODULES: "core builder" # Modules specified for configure.py
+      PARALLEL_JOBS: "4" # Number of parallel jobs for the build
+
+      # --- Checkout Paths (Relative to Workspace Root) ---
+      # build_tools repo is checked out to workspace root itself.
+      CORE_DIR_REL: core # Core repo checkout dir relative path
+      SDKJS_DIR_REL: sdkjs # SDKjs repo checkout dir relative path
+      ARTIFACT_SDK_DIR_REL: artifact_sdk # Dir for final artifacts relative path
+
+      # --- Key Subdirectory Paths (Relative to Workspace Root) ---
+      CORE_3RDPARTY_DIR_REL: core/Common/3dParty # Relative path for caching 3rd party deps
+      QT_INSTALL_BASE_DIR_REL: Qt_Install # Base dir for Qt installation relative path
+
+      # --- Absolute Paths ---
+      DEPOT_TOOLS_DIR: C:\depot_tools
+
+      # --- Caching ---
+      DEPOT_TOOLS_CACHE_KEY_PREFIX: depot-tools-v3
+      QT_CACHE_KEY_PREFIX: qt-cache-v2
+      THIRD_PARTY_CACHE_KEY_PREFIX: 3rdparty-deps-v3 # Increment to manually invalidate
+
+      # --- Other Static Config ---
+      JAVA_INSTALL_URL_BASE: https://github.com/AdoptOpenJDK/
+      QT_MIRROR_URL: "https://mirrors.dotsrc.org/qtproject/"
+
+    defaults:
+      run:
+        shell: pwsh # Default to PowerShell
+        working-directory: ${{ github.workspace }} # Default work dir is workspace root
+
+    steps:
+      # --------------------------------------------------------------------
+      # 1. Checkout Repositories (Main repo to workspace root)
+      # --------------------------------------------------------------------
+      - name: Checkout Main Repo (build_tools)
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.workspace }} # Checkout build_tools to workspace root
+          fetch-depth: 1
+
+      - name: Checkout Core Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/core
+          path: ${{ env.CORE_DIR_REL }} # Checkout to ./core
+          fetch-depth: 1
+
+      - name: Checkout SDKjs Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/sdkjs
+          path: ${{ env.SDKJS_DIR_REL }} # Checkout to ./sdkjs
+          fetch-depth: 1
+
+      - name: Display Initial Workspace Structure
+        run: |
+          Write-Host "::group::Initial Workspace Structure (${{ github.workspace }})"
+          Get-ChildItem -Recurse -Force -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length, LastWriteTime | Format-Table -AutoSize -Wrap
+          # Alternatively, if tree command is available on runner:
+          # cmd /c tree /F /A ${{ github.workspace }} || echo "Tree command not available."
+          Write-Host "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # 2. Setup Build Environment
+      # --------------------------------------------------------------------
+      - name: Set up Python ${{ env.REQUIRED_PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.REQUIRED_PYTHON_VERSION }}
+
+      - name: Set up MSBuild and VS Dev Env
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Chocolatey Packages (7zip, Erlang, RabbitMQ)
+        run: |
+          Write-Host "::group::Installing Chocolatey Packages"
+          choco install 7zip.install erlang rabbitmq -y --no-progress --force
+          Write-Host "::endgroup::"
+
+      - name: Install Specific JDK ${{ env.REQUIRED_JAVA_VERSION }}
+        id: install_java
+        run: |
+          $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; $JavaVersion = "${{ env.REQUIRED_JAVA_VERSION }}"; $JavaMajorVersion = $JavaVersion.Split('.')[0]; $JdkVersionTag = "$JavaVersion`+9"; $JdkMsiFileName = "OpenJDK${JavaMajorVersion}U-jdk_x64_windows_hotspot_${JavaVersion}_9.msi"; $JDK_MSI_URL = "${{ env.JAVA_INSTALL_URL_BASE }}openjdk${JavaMajorVersion}-binaries/releases/download/jdk-${JdkVersionTag}/${JdkMsiFileName}"; $JDK_INSTALL_PATH = "C:\Program Files\AdoptOpenJDK\jdk-${JavaVersion}.9-hotspot"; $MsiPath = Join-Path $Env:TEMP $JdkMsiFileName; Write-Host "::group::Installing JDK ${JavaVersion}"; if (-not (Test-Path "$JDK_INSTALL_PATH\bin\java.exe")) { Write-Host "JDK not found at $JDK_INSTALL_PATH. Downloading..."; try { Invoke-WebRequest -Uri $JDK_MSI_URL -OutFile $MsiPath -UseBasicParsing -TimeoutSec 300 } catch { Write-Error "DL failed: $_"; Write-Host "Retrying curl..."; curl.exe -Lfo $MsiPath $JDK_MSI_URL --silent --fail --connect-timeout 60 --retry 3; if ($LASTEXITCODE -ne 0) { throw "curl failed" } }; Write-Host "Installing JDK..."; $process = Start-Process msiexec.exe -Wait -ArgumentList "/i", "`"$MsiPath`"", "/qn", "/norestart", "INSTALLDIR=`"$JDK_INSTALL_PATH`"" -PassThru -EA Stop; if ($process.ExitCode -ne 0) { throw "MSI install failed: $($process.ExitCode)." }; if (-not (Test-Path "$JDK_INSTALL_PATH\bin\java.exe")) { throw "java.exe not found post-install." }; Write-Host "JDK installed."; Remove-Item $MsiPath -Force -EA SilentlyContinue } else { Write-Host "JDK already installed." }; echo "jdk_install_path=$JDK_INSTALL_PATH" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append; echo "JAVA_HOME=$JDK_INSTALL_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append; echo "$JDK_INSTALL_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append; Write-Host "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # 3. Define Cache Keys
+      # --------------------------------------------------------------------
+      - name: Define Depot Tools Cache Key
+        id: depot_cache_props
+        run: |
+          $key = "${{ runner.os }}-${{ env.DEPOT_TOOLS_CACHE_KEY_PREFIX }}"
+          echo "key=$key" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Depot Tools Cache Key: $key"
+
+      - name: Define Qt Paths and Cache Key
+        id: qt_paths_action
+        run: |
+          $QtInstallBaseAbs = Join-Path "${{ github.workspace }}" "${{ env.QT_INSTALL_BASE_DIR_REL }}"
+          $QtInstallDir = Join-Path $QtInstallBaseAbs "Qt" "${{ env.REQUIRED_QT_VERSION }}" "${{ env.QT_INSTALL_FOLDER_NAME }}"
+          $CacheKey = "${{ runner.os }}-${{ env.QT_CACHE_KEY_PREFIX }}-${{ env.REQUIRED_QT_VERSION }}-${{ env.REQUIRED_QT_ARCH }}"
+          $CacheRestoreKeyPrefix = "${{ runner.os }}-${{ env.QT_CACHE_KEY_PREFIX }}-${{ env.REQUIRED_QT_VERSION }}-${{ env.REQUIRED_QT_ARCH }}-"
+          echo "qt_install_dir=$QtInstallDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Enc utf8 -App
+          echo "qt_cache_key=$CacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Enc utf8 -App
+          echo "qt_cache_restore_prefix=$CacheRestoreKeyPrefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Enc utf8 -App
+          Write-Host "Expected Qt Install Dir (Absolute): $QtInstallDir"
+          Write-Host "Qt Cache Key: $CacheKey"
+
+      - name: Define 3rd Party Deps Cache Key
+        id: third_party_cache_props
+        run: |
+          # Hash module scripts relative to workspace root
+          $Key = "${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-${{ hashFiles('scripts/core_common/modules/**') }}"
+          $RestoreKeyPrefix = "${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-"
+          echo "key=$Key" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          echo "restore_prefix=$RestoreKeyPrefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "3rd Party Cache Key: $Key"
+
+      # --------------------------------------------------------------------
+      # 4. Restore Caches
+      # --------------------------------------------------------------------
+      - name: Restore depot_tools cache
+        uses: actions/cache@v4
+        id: cache-depot
+        with:
+          path: ${{ env.DEPOT_TOOLS_DIR }}
+          key: ${{ steps.depot_cache_props.outputs.key }}
+
+      - name: Restore Qt Installation Cache
+        id: cache-qt-install-action
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.QT_INSTALL_BASE_DIR_REL }}/Qt/${{ env.REQUIRED_QT_VERSION }} # Cache the version-specific directory created by the action
+          key: ${{ steps.qt_paths_action.outputs.qt_cache_key }}
+          restore-keys: |
+            ${{ steps.qt_paths_action.outputs.qt_cache_restore_prefix }}
+
+      - name: Restore 3rd Party Dependencies Cache
+        uses: actions/cache@v4
+        id: cache-3rdparty
+        with:
+          path: ${{ env.CORE_3RDPARTY_DIR_REL }} # Relative path to core/Common/3dParty
+          key: ${{ steps.third_party_cache_props.outputs.key }}
+          restore-keys: |
+            ${{ steps.third_party_cache_props.outputs.restore_prefix }}
+
+      # --------------------------------------------------------------------
+      # 5. Setup Dependencies (if not cached)
+      # --------------------------------------------------------------------
+      - name: Clone depot_tools if cache miss
+        if: steps.cache-depot.outputs.cache-hit != 'true'
+        run: |
+          Write-Host "::group::Cloning depot_tools..."; git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $Env:DEPOT_TOOLS_DIR; if ($LASTEXITCODE -ne 0) { throw "clone failed" }; Write-Host "::endgroup::"
+
+      - name: Add depot_tools to PATH
+        run: echo "${{ env.DEPOT_TOOLS_DIR }}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Qt if cache miss
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          extra: "--base ${{ env.QT_MIRROR_URL }}"
+          dir: ${{ env.QT_INSTALL_BASE_DIR_REL }} # Install relative to workspace
+
+      - name: Verify Qt Installation and Add to PATH
+        run: |
+          $ExpectedQtInstallDir = "${{ steps.qt_paths_action.outputs.qt_install_dir }}"
+          $ExpectedQtBinPath = Join-Path $ExpectedQtInstallDir "bin"
+          Write-Host "Verifying Qt Install Dir: $ExpectedQtInstallDir"
+          if (-not (Test-Path $ExpectedQtInstallDir -PathType Container)) { Write-Error "Qt install directory '$ExpectedQtInstallDir' not found post-install/cache!"; $PossibleParentDir = Split-Path $ExpectedQtInstallDir -Parent; if (Test-Path $PossibleParentDir) { Get-ChildItem -Path $PossibleParentDir -Depth 1 -Force -EA SilentlyContinue | Select FullName, Mode, LastWriteTime; }; throw "Qt path verification failed." }
+          Write-Host "Verifying Qt Bin Path: $ExpectedQtBinPath"
+          if (-not (Test-Path $ExpectedQtBinPath -PathType Container)) { Write-Error "Qt bin directory not found at '$ExpectedQtBinPath'!"; Get-ChildItem -Path $ExpectedQtInstallDir -Depth 1 -Force -EA SilentlyContinue | Select FullName, Mode, LastWriteTime; throw "Qt bin verification failed." }
+          Write-Host "Qt installation directory structure looks correct."
+          $qmakePath = (Get-Command qmake -ErrorAction SilentlyContinue).Source
+          if (-not $qmakePath) { Write-Warning "qmake not found in PATH. Adding '$ExpectedQtBinPath' manually."; echo $ExpectedQtBinPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
+          else { Write-Host "qmake found in PATH at: $qmakePath"; if (-not ($qmakePath -like "$ExpectedQtBinPath*")) { Write-Warning "qmake in PATH ($qmakePath) != expected ($ExpectedQtBinPath). Adding expected path."; echo $ExpectedQtBinPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append } }
+
+      - name: Display Workspace Structure Before Build
+        run: |
+          Write-Host "::group::Workspace Structure Before Build (${{ github.workspace }})"
+          Get-ChildItem -Recurse -Depth 3 -Force -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length, LastWriteTime | Format-Table -AutoSize -Wrap
+          Write-Host "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # 6. Configure & Build (Working Directory = Workspace Root)
+      # --------------------------------------------------------------------
+      - name: Configure ONLYOFFICE Build
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          echo "::group::Running configure.py"
+          CONFIG_ARGS="--platform ${{ env.OO_PLATFORM }} --module ${{ env.OO_MODULES }} --update 0 --clean 1 --vs-version ${{ env.REQUIRED_VS_VERSION }} --multiprocess ${{ env.PARALLEL_JOBS }}"
+          echo "Running in $(pwd): python configure.py ${CONFIG_ARGS}"
+          python configure.py ${CONFIG_ARGS}
+          status=$?
+          echo "configure.py finished (Exit Code: $status)."
+          if [ $status -ne 0 ]; then echo "::error::configure.py failed"; exit $status; fi
+          echo "--- Config file contents (after configure.py): ---"; cat config || echo "Config file 'config' not found or empty."; echo "--- End Config file contents ---"; echo "::endgroup::"
+
+      - name: Add Qt Dir to Build Config
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        run: |
+          $configFile = "config"
+          $qtDirValue = "${{ steps.qt_paths_action.outputs.qt_install_dir }}".Replace('/','\')
+          $qtDirLine = "qt-dir=`"$qtDirValue`""
+          Write-Host "Checking if $configFile exists in $(Get-Location)..."
+          if (Test-Path $configFile) {
+            Write-Host "Adding/Updating '$qtDirLine' in $configFile"
+            (Get-Content $configFile) | Where-Object { $_ -notmatch '^qt-dir=' } | Out-File $configFile -Encoding ascii -Force
+            Add-Content -Path $configFile -Value $qtDirLine
+            Write-Host "$configFile content after update:"; Get-Content $configFile | Write-Host
+          } else { Write-Warning "$configFile not found. Creating it."; Set-Content -Path $configFile -Value $qtDirLine -Encoding ascii }
+
+      - name: Build ONLYOFFICE Modules
+        working-directory: ${{ github.workspace }}
+        shell: bash # Keep bash for timing/status logic
+        env:
+          QTDIR: ${{ steps.qt_paths_action.outputs.qt_install_dir }}
+          JAVA_HOME: ${{ steps.install_java.outputs.jdk_install_path }}
+        run: |
+          echo "::group::Running make.py (fetching/building 3rd party deps if needed, then building modules)"
+          echo "Note: 3rd party dependencies build output (v8, icu, etc.) might be lengthy if cache was missed."
+          START_TIME=$(date +%s)
+          echo "Using QTDIR: ${QTDIR}"
+          echo "Using JAVA_HOME: ${JAVA_HOME}"
+          python make.py; status=$?
+          END_TIME=$(date +%s); ELAPSED_TIME=$((END_TIME - START_TIME))
+          echo "Build process completed in ${ELAPSED_TIME} seconds (Exit Code: $status)."
+          echo "::endgroup::"
+          if [ $status -ne 0 ]; then echo "::error::make.py failed"; exit $status; fi
+
+      # --------------------------------------------------------------------
+      # Step 7: Prepare and Upload Artifacts
+      # --------------------------------------------------------------------
+      - name: Prepare Build Artifacts
+        id: prepare_artifacts
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Write-Host "::group::Preparing Artifacts"
+          $ArtifactDir = Join-Path "${{ github.workspace }}" "${{ env.ARTIFACT_SDK_DIR_REL }}"
+          $IncludeDir = Join-Path $ArtifactDir "include"; $LibDir = Join-Path $ArtifactDir "lib"
+          New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null; New-Item -ItemType Directory -Path $IncludeDir -Force | Out-Null; New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
+          $BuildToolsAbsDir = "${{ github.workspace }}"
+          $CoreAbsDir = Join-Path $BuildToolsAbsDir "${{ env.CORE_DIR_REL }}"
+          $BrandSegment = $Env:ONLYOFFICE_BRANDING_NAME; if ($BrandSegment) { $BrandPath = "$BrandSegment\" } else { $BrandPath = "onlyoffice\" }; $BuildConfig = "Release"; $PlatformPath = $Env:OO_PLATFORM
+          $SourceLibDirCandidates = @( Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" "$($PlatformPath)_$BuildConfig", Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" $PlatformPath, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" $BuildConfig, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" ); $SourceLibDir = $null
+          Write-Host "Searching for source library dir..."; foreach ($candidate in $SourceLibDirCandidates) { Write-Host "Checking: $candidate"; if (Test-Path $candidate -PathType Container) { Write-Host "Found: $candidate"; $SourceLibDir = $candidate; break } }; if (-not $SourceLibDir) { throw "Source lib dir not found! Checked: $($SourceLibDirCandidates -join ', ')" }
+          $HeaderSourceCore = Join-Path $CoreAbsDir "DesktopEditor" "doctrenderer" "docbuilder.h"; $HeaderSourceCommon = Join-Path $CoreAbsDir "DesktopEditor" "common" "base_export.h"
+          Write-Host "Copying headers..."; if (Test-Path $HeaderSourceCore) { Copy-Item $HeaderSourceCore "$IncludeDir\" -Force -EA Stop } else { throw "Header not found: $HeaderSourceCore" }; if (Test-Path $HeaderSourceCommon) { Copy-Item $HeaderSourceCommon "$IncludeDir\" -Force -EA SilentlyContinue } else { Write-Warning "Optional header not found: $HeaderSourceCommon" };
+          $coreLibs = @( "doctrenderer", "kernel", "graphics", "UnicodeConverter", "PdfFile", "XpsFile", "DjVuFile", "HtmlFile2", "DocxRenderer" ); $icuLibsPatterns = @( "icudt*.dll", "icuuc*.dll", "icuin*.dll" ); $v8Files = @( "v8_monolith.lib", "snapshot_blob.bin", "icudtl.dat", "v8.dll", "v8_libbase.dll", "v8_libplatform.dll" )
+          # Use relative path for 3rd party dir within workspace
+          $Core3rdPartyDirAbs = Join-Path "${{ github.workspace }}" "${{ env.CORE_3RDPARTY_DIR_REL }}"
+          $V8SourceDir = Join-Path $Core3rdPartyDirAbs "v8_89" "v8" "out.gn" $PlatformPath $BuildConfig; $IcuSourceDir = Join-Path $Core3rdPartyDirAbs "icu" $PlatformPath "build"
+          function Copy-BuildFile { param($SourceName, $SourceDir, $DestDir, [switch]$AllowMissing=$false); $SourcePath = Join-Path $SourceDir $SourceName; if (Test-Path $SourcePath -PathType Leaf) { Write-Host "  Copying '$SourceName'..."; Copy-Item $SourcePath "$DestDir\" -Force -EA Stop; return $true } elseif (-not $AllowMissing) { Write-Error " Required file not found: '$SourceName' in '$SourceDir'"; throw "Missing: $SourceName" } else { Write-Host "  Optional file not found: '$SourcePath'"; return $false } }; function Copy-BuildPattern { param($SourcePattern, $SourceDir, $DestDir, [switch]$AllowMissing=$false); $foundItems = $false; if (Test-Path $SourceDir -PathType Container) { $items = Get-ChildItem -Path $SourceDir -Filter $SourcePattern -File -EA SilentlyContinue; if ($items) { Write-Host "  Copying '$SourcePattern'..."; Copy-Item $items.FullName "$DestDir\" -Force -EA Stop; $foundItems = $true } }; if (-not $foundItems) { if (-not $AllowMissing) { Write-Error " Required pattern not found: '$SourcePattern' in '$SourceDir'"; throw "Missing: $SourcePattern" } else { Write-Host "  Optional pattern not found: '$SourcePattern' in '$SourceDir'" } }; return $foundItems };
+          Write-Host "Copying main libs from $SourceLibDir..."; foreach ($lib in $coreLibs) { Copy-BuildFile "$($lib).dll" $SourceLibDir $LibDir -AllowMissing; Copy-BuildFile "$($lib).lib" $SourceLibDir $LibDir }; Write-Host "Copying ICU libs..."; $icuFoundAny = $false; foreach ($p in $icuLibsPatterns) { if (Copy-BuildPattern $p $SourceLibDir $LibDir -AllowMissing) { $icuFoundAny = $true }; if (Copy-BuildPattern $p $IcuSourceDir $LibDir -AllowMissing) { $icuFoundAny = $true } }; if (-not $icuFoundAny) { Write-Warning "Could not find ICU DLLs." }; Write-Host "Copying V8 files..."; $v8FoundAny = $false; if (Test-Path $V8SourceDir -PathType Container) { foreach ($f in $v8Files) { if (Copy-BuildFile $f $V8SourceDir $LibDir -AllowMissing) { $v8FoundAny = $true } } } else { Write-Warning "V8 source dir not found: $V8SourceDir" }; if (-not (Test-Path (Join-Path $LibDir "v8_monolith.lib") -PathType Leaf)) { Write-Warning "Critical V8 file 'v8_monolith.lib' not found."}; if (-not $v8FoundAny) { Write-Warning "No V8 files copied." };
+          Write-Host "Artifact prep complete."; Get-ChildItem $ArtifactDir -Recurse -EA SilentlyContinue | Select FullName, Length, LastWriteTime; Write-Host "::endgroup::"
+
+      - name: Upload ONLYOFFICE Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "onlyoffice-core-sdk-${{ env.OO_PLATFORM }}"
+          path: ${{ env.ARTIFACT_SDK_DIR_REL }} # Path relative to workspace
+          if-no-files-found: error
+          retention-days: 7
+
+      # --------------------------------------------------------------------
+      # Step 8: Final Debug Dump
+      # --------------------------------------------------------------------
+      - name: Debug Dump Environment and PATH
+        if: always()
+        run: |
+          $ArtifactSdkDir = Join-Path "${{ github.workspace }}" "${{ env.ARTIFACT_SDK_DIR_REL }}"
+          $ThirdPartyDirAbs = Join-Path "${{ github.workspace }}" "${{ env.CORE_3RDPARTY_DIR_REL }}"
+          Write-Host "::group::Final Debug Dump"; Write-Host "Job Status: ${{ job.status }}"
+          Write-Host "--- Cache Hits ---"
+          Write-Host "Depot Tools Cache Hit: ${{ steps.cache-depot.outputs.cache-hit }}"
+          Write-Host "Qt Cache Hit: ${{ steps.cache-qt-install-action.outputs.cache-hit }}"
+          Write-Host "3rd Party Cache Hit: ${{ steps.cache-3rdparty.outputs.cache-hit }}"
+          Write-Host "--- Action Env Vars ---"; Get-ChildItem Env: | Where-Object { $_.Name -like 'GITHUB_*' -or $_.Name -like 'RUNNER_*' -or $_.Name -like 'CI' } | Sort-Object Name | Format-Table -AutoSize -Wrap
+          Write-Host "--- Build Env Vars (Selected) ---"; Get-ChildItem Env: | Where-Object { $_.Name -like 'QT_*' -or $_.Name -like 'JAVA_*' -or $_.Name -like 'DEPOT_*' -or $_.Name -like 'OO_*' -or $_.Name -like 'VSINSTALL*' -or $_.Name -like 'Chocolatey*' -or $_.Name -like 'STEP_*' } | Sort-Object Name | Format-Table -AutoSize -Wrap
+          Write-Host "--- System PATH ---"; ($Env:Path -split ';') -join "`n"
+          Write-Host "--- Workspace Structure (${{ github.workspace }}) ---"; Get-ChildItem "${{ github.workspace }}" -Depth 2 -Force -ErrorAction SilentlyContinue | Select FullName, Mode, LastWriteTime | Format-Table -AutoSize -Wrap
+          Write-Host "--- Artifact Dir ($ArtifactSdkDir) ---"; if (Test-Path "$ArtifactSdkDir" -PathType Container) { Get-ChildItem "$ArtifactSdkDir" -Recurse -EA SilentlyContinue | Format-Table -AutoSize -Wrap } else { Write-Warning "Artifact dir not found" }
+          $QtInstalledDir = "${{ steps.qt_paths_action.outputs.qt_install_dir }}"
+          Write-Host "--- Qt Install Dir (${QtInstalledDir}) ---"; if (Test-Path $QtInstalledDir -PathType Container) { Write-Host "Top-level:"; Get-ChildItem $QtInstalledDir -Depth 0 -EA SilentlyContinue | Select FullName, Mode, LastWriteTime; $QtBinDir = Join-Path $QtInstalledDir "bin"; if (Test-Path $QtBinDir -PathType Container) { Write-Host "Bin dir:"; Get-ChildItem $QtBinDir -Depth 0 -EA SilentlyContinue | Format-Table -AutoSize -Wrap } else { Write-Warning "Qt bin dir not found" } } else { Write-Warning "Qt install dir not found" }
+          Write-Host "--- 3rd Party Deps Dir (${ThirdPartyDirAbs}) ---"; if (Test-Path "$ThirdPartyDirAbs" -PathType Container) { Get-ChildItem "$ThirdPartyDirAbs" -Depth 1 -Force -EA SilentlyContinue | Select FullName, Mode, LastWriteTime; } else { Write-Warning "3rd party dir not found or cache miss" }
+          Write-Host "::endgroup::"
+        # uses default shell: pwsh

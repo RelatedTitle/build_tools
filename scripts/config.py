@@ -2,127 +2,254 @@
 
 import base
 import os
-import platform
+import multiprocessing
+import sys
+import config_common
 
+platforms = []
+platforms_native = []
+platforms_virtualbox_sdk = []
+params = [
+  {
+    "name":"win_64",
+    "os":"windows",
+    "arch":"x86_64",
+    "prefix":"amd64",
+    "platform":"win64"
+  },
+  {
+    "name":"win_32",
+    "os":"windows",
+    "arch":"x86",
+    "prefix":"Win32",
+    "platform":"win32"
+  },
+  {
+    "name":"win_64_xp",
+    "os":"windows",
+    "arch":"x86_64",
+    "prefix":"amd64",
+    "platform":"win64_xp"
+  },
+  {
+    "name":"win_32_xp",
+    "os":"windows",
+    "arch":"x86",
+    "prefix":"Win32",
+    "platform":"win32_xp"
+  },
+  {
+    "name":"linux_64",
+    "os":"linux",
+    "arch":"x86_64",
+    "prefix":"linux_64",
+    "platform":"linux64"
+  },
+  {
+    "name":"linux_32",
+    "os":"linux",
+    "arch":"x86",
+    "prefix":"linux_32",
+    "platform":"linux32"
+  },
+  {
+    "name":"linux_arm64",
+    "os":"linux",
+    "arch":"aarch64",
+    "prefix":"linux_arm64",
+    "platform":"linux_arm64"
+  },
+  {
+    "name":"mac_64",
+    "os":"darwin",
+    "arch":"x86_64",
+    "prefix":"mac_64",
+    "platform":"mac64"
+  },
+  {
+    "name":"mac_arm64",
+    "os":"darwin",
+    "arch":"arm64",
+    "prefix":"mac_arm64",
+    "platform":"mac_arm64"
+  },
+  {
+    "name":"ios",
+    "os":"ios",
+    "arch":"arm64",
+    "prefix":"ios",
+    "platform":"ios"
+  },
+  {
+    "name":"android_arm64_v8a",
+    "os":"android",
+    "arch":"arm64-v8a",
+    "prefix":"android_arm64",
+    "platform":"android_arm64_v8a"
+  },
+  {
+    "name":"android_armv7",
+    "os":"android",
+    "arch":"armv7",
+    "prefix":"android_arm",
+    "platform":"android_armv7"
+  },
+  {
+    "name":"android_x86",
+    "os":"android",
+    "arch":"x86",
+    "prefix":"android_x86",
+    "platform":"android_x86"
+  },
+  {
+    "name":"android_x86_64",
+    "os":"android",
+    "arch":"x86_64",
+    "prefix":"android_x64",
+    "platform":"android_x86_64"
+  }
+]
+
+config = {}
+config_platform = {}
+
+# parse configuration
 def parse():
-  configfile = open(base.get_script_dir() + "/../config", "r")
-  configOptions = {}
-  for line in configfile:
-    name, value = line.partition("=")[::2]
-    k = name.strip()
-    v = value.strip(" '\"\r\n")
-    if ("true" == v.lower()):
-      v = "1"
-    if ("false" == v.lower()):
-      v = "0"
-    configOptions[k] = v
-    os.environ["OO_" + k.upper().replace("-", "_")] = v
-
-  # export options
-  global options
-  options = configOptions
-
-  # all platforms
   global platforms
-  platforms = ["win_64", "win_32", "win_64_xp", "win_32_xp", 
-               "linux_64", "linux_32", "linux_arm64",
-               "mac_64", "mac_arm64",
-               "ios", 
-               "android_arm64_v8a", "android_armv7", "android_x86", "android_x86_64"]
+  global platforms_native
+  global config
+  global config_platform
+  global params
 
-  # correction
-  host_platform = base.host_platform()
+  path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config")
+  if not base.is_file(path):
+    return
   
+  config, config_platform = config_common.parse_config(path)
+
+  for item in config_platform:
+    if not item in platforms:
+      platforms.append(item)
+
+  # add native platforms
+  host = base.host_platform()
+  
+  # Add native platforms
+  if host == "windows":
+    if not "win_64" in platforms:
+      platforms.append("win_64")
+    if not "win_32" in platforms:
+      platforms.append("win_32")
+    platforms_native = ["win_32", "win_64"]
+  elif host == "darwin":
+    if not "mac_64" in platforms:
+      platforms.append("mac_64")
+    if not "mac_arm64" in platforms:
+      platforms.append("mac_arm64")
+    platforms_native = ["mac_64", "mac_arm64"]
+  elif host == "linux":
+    if not "linux_64" in platforms:
+      platforms.append("linux_64")
+    if not "linux_32" in platforms:
+      platforms.append("linux_32")
+    platforms_native = ["linux_32", "linux_64"]
+    
+  if (host == "windows"):
+    if not "win_64_xp" in platforms:
+      platforms.append("win_64_xp")
+    if not "win_32_xp" in platforms:
+      platforms.append("win_32_xp")
+  
+  # correction
+  if "all" in platforms:
+    if "android" in platforms:
+      platforms.remove("android")
+  if ("androidarm" in platforms) or ("_arm" in config.get("platform", "")):
+    if not "android_arm64_v8a" in platforms:
+      platforms.append("android_arm64_v8a")
+    if not "android_armv7" in platforms:
+      platforms.append("android_armv7")
+    if not "android_x86" in platforms:
+      platforms.append("android_x86")
+    if not "android_x86_64" in platforms:
+      platforms.append("android_x86_64")
+    if "androidarm" in platforms:
+      platforms.remove("androidarm")
+  if "android" in platforms:
+    if not "android_arm64_v8a" in platforms:
+      platforms.append("android_arm64_v8a")
+    if not "android_armv7" in platforms:
+      platforms.append("android_armv7")
+    if not "android_x86" in platforms:
+      platforms.append("android_x86")
+    if not "android_x86_64" in platforms:
+      platforms.append("android_x86_64")
+    platforms.remove("android")
+  
+  if "all" in platforms:
+    if "windows" in platforms:
+      platforms.remove("windows")
+  if "windows" in platforms:
+    if not "win_64" in platforms:
+      platforms.append("win_64")
+    if not "win_32" in platforms:
+      platforms.append("win_32")
+    platforms.remove("windows")
+  
+  if "all" in platforms:
+    if "linux" in platforms:
+      platforms.remove("linux")
+  if "linux" in platforms:
+    if not "linux_64" in platforms:
+      platforms.append("linux_64")
+    if not "linux_32" in platforms:
+      platforms.append("linux_32")
+    platforms.remove("linux")
+
+  if "all" in platforms:
+    if "darwin" in platforms:
+      platforms.remove("darwin")
+    if "mac" in platforms:
+      platforms.remove("mac")
+  if ("mac" in platforms) or ("darwin" in platforms):
+    if not "mac_64" in platforms:
+      platforms.append("mac_64")
+    if not "mac_arm64" in platforms:
+      platforms.append("mac_arm64")
+    if "mac" in platforms:
+      platforms.remove("mac")
+    if "darwin" in platforms:
+      platforms.remove("darwin")
+
   # platform
   if check_option("platform", "all"):
-    if ("windows" == host_platform):
-      options["platform"] += " win_64 win_32"
-    elif ("linux" == host_platform):
-      options["platform"] += " linux_64 linux_32"
-    else:
-      options["platform"] += " mac_64"
+    platforms = []
+    for item in params:
+      platforms.append(item["name"])
 
   if check_option("platform", "native"):
-    bits = "32"
-    if platform.machine().endswith('64'):
-      bits = "64"
-    if ("windows" == host_platform):
-      options["platform"] += (" win_" + bits)
-    elif ("linux" == host_platform):
-      options["platform"] += (" linux_" + bits)
-    else:
-      options["platform"] += (" mac_" + bits)
-
-  if ("mac" == host_platform) and check_option("platform", "mac_arm64") and not base.is_os_arm():
-    if not check_option("platform", "mac_64"):
-      options["platform"] = "mac_64 " + options["platform"]
-
-  if ("linux" == host_platform) and check_option("platform", "linux_arm64") and not base.is_os_arm():
-    if not check_option("platform", "linux_64"):
-      # linux_64 binaries need only for desktop
-      if check_option("module", "desktop"):
-        options["platform"] = "linux_64 " + options["platform"]
-
-  if check_option("platform", "xp") and ("windows" == host_platform):
-    options["platform"] += " win_64_xp win_32_xp"
-
-  if check_option("platform", "android"):
-    options["platform"] += " android_arm64_v8a android_armv7 android_x86 android_x86_64"
-
-  # check vs-version
-  if ("windows" == host_platform) and ("" == option("vs-version")):
-    options["vs-version"] = "2019"
-    if check_option("platform", "win_64_xp") or check_option("platform", "win_32_xp"):
-      options["vs-version"] = "2015"
-
-  if ("windows" == host_platform) and ("2019" == option("vs-version")):
-      extend_option("config", "vs2019")
-
-  if is_cef_107():
-    extend_option("config", "cef_version_107")
-  if is_v8_60():
-    extend_option("config", "v8_version_60")
-
-  # check vs-path
-  if ("windows" == host_platform) and ("" == option("vs-path")):
-    programFilesDir = base.get_env("ProgramFiles")
-    if ("" != base.get_env("ProgramFiles(x86)")):
-      programFilesDir = base.get_env("ProgramFiles(x86)")
-    if ("2015" == options["vs-version"]):
-      options["vs-path"] = programFilesDir + "/Microsoft Visual Studio 14.0/VC"
-    elif ("2019" == options["vs-version"]):
-      if base.is_dir(programFilesDir + "/Microsoft Visual Studio/2019/Enterprise/VC/Auxiliary/Build"):
-        options["vs-path"] = programFilesDir + "/Microsoft Visual Studio/2019/Enterprise/VC/Auxiliary/Build"
-      elif base.is_dir(programFilesDir + "/Microsoft Visual Studio/2019/Professional/VC/Auxiliary/Build"):
-        options["vs-path"] = programFilesDir + "/Microsoft Visual Studio/2019/Professional/VC/Auxiliary/Build"
-      else:
-        options["vs-path"] = programFilesDir + "/Microsoft Visual Studio/2019/Community/VC/Auxiliary/Build"
-
-  # check sdkjs-plugins
-  if not "sdkjs-plugin" in options:
-    options["sdkjs-plugin"] = "default"
-  if not "sdkjs-plugin-server" in options:
-    options["sdkjs-plugin-server"] = "default"
-
-  if not "arm64-toolchain-bin" in options:
-    options["arm64-toolchain-bin"] = "/usr/bin"
-
+    platforms = platforms_native
+  
   if check_option("platform", "ios"):
-    if not check_option("config", "no_bundle_xcframeworks"):
-      if not check_option("config", "bundle_xcframeworks"):
-        extend_option("config", "bundle_xcframeworks")
+    platforms = ["ios"]
+    
+  if check_option("platform", "native-win"):
+    platforms = ["win_64", "win_32", "win_64_xp", "win_32_xp"]
 
-  if check_option("config", "bundle_xcframeworks"):
-    if not check_option("config", "bundle_dylibs"):
-      extend_option("config", "bundle_dylibs")
+  if check_option("platform", "native-linux"):
+    platforms = ["linux_64", "linux_32"]
 
-  if check_option("use-system-qt", "1"):
-    base.cmd_in_dir(base.get_script_dir() + "/../tools/linux", "python", ["use_system_qt.py"])
-    options["qt-dir"] = base.get_script_dir() + "/../tools/linux/system_qt"
+  if check_option("platform", "native-mac"):
+    platforms = ["mac_64", "mac_arm64"]
+  
+  if check_option("platform", "freebsd"):
+    platforms = ["freebsd"]
 
-  # disable all warnings (enable if needed with core_enable_all_warnings options)
-  if not check_option("config", "core_enable_all_warnings"):
-    extend_option("config", "core_disable_all_warnings")
+  # correction
+  if "platform" in config:
+    if "linux_arm64" in config["platform"]:
+      if not "linux_arm64" in platforms:
+        platforms.append("linux_arm64")
 
   return
 
@@ -131,59 +258,50 @@ def check_compiler(platform):
   compiler["compiler"] = option("compiler")
   compiler["compiler_64"] = compiler["compiler"] + "_64"
 
-  if ("" != compiler["compiler"]):
-    if ("ios" == platform):
-      compiler["compiler_64"] = compiler["compiler"]
-    return compiler
-
-  if (0 == platform.find("win")):
-    compiler["compiler"] = "msvc" + options["vs-version"]
-    compiler["compiler_64"] = "msvc" + options["vs-version"] + "_64"
-  elif (0 == platform.find("linux")):
-    compiler["compiler"] = "gcc"
-    compiler["compiler_64"] = "gcc_64"
-    if (0 == platform.find("linux_arm")) and not base.is_os_arm():
-      compiler["compiler"] = "gcc_arm"
-      compiler["compiler_64"] = "gcc_arm64"
-  elif (0 == platform.find("mac")):
-    compiler["compiler"] = "clang"
-    compiler["compiler_64"] = "clang_64"
-  elif ("ios" == platform):
-    compiler["compiler"] = "ios"
-    compiler["compiler_64"] = "ios"
-  elif (0 == platform.find("android")):
-    compiler["compiler"] = platform
-    compiler["compiler_64"] = platform
-
-  if base.host_platform() == "mac":
-    if not base.is_dir(options["qt-dir"] + "/" + compiler["compiler_64"]):
-      if base.is_dir(options["qt-dir"] + "/macos"):
-        compiler["compiler"] = "macos"
-        compiler["compiler_64"] = "macos"
-
-  return compiler
+  if (compiler["compiler"] != ""):
+    if ("linux" == base.host_platform()) and (platform.startswith("linux")):
+      compiler_version = "-" + compiler["compiler"]
+      if platform.endswith("64") and not platform.startswith("linux_arm"):
+        compiler_version = "-" + compiler["compiler_64"]
+      if ("gcc" == compiler["compiler"]) and not base.is_dir("/usr/lib" + compiler_version):
+        print("compiler not found (" + compiler_version + ")")
+        exit(0)
+    if ("mac" == base.host_platform()) and (platform.startswith("mac")):
+      compiler_dir = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain"
+      if base.is_dir(compiler_dir):
+        print("compiler find: " + compiler_dir)
+      else:
+        print("compiler not found (" + compiler_dir + ")")
+        exit(0)
+    if ("windows" == base.host_platform()) and (platform.startswith("win")):
+      compiler_dir = base.get_env("ProgramFiles") + "\\Microsoft Visual Studio 14.0";
+      if base.is_dir(compiler_dir):
+        print("compiler find: " + compiler_dir)
+      else:
+        print("compiler not found (" + compiler_dir + ")")
+        exit(0)
+  return
 
 def check_option(name, value):
-  if not name in options:
+  if not name in config:
     return False
-  tmp = " " + options[name] + " "
-  if (-1 == tmp.find(" " + value + " ")):
-    return False
-  return True
+  if config[name] == value:
+    return True
+  return False
 
 def option(name):
-  if name in options:
-    return options[name]
+  if name in config:
+    return config[name]
   return ""
 
 def extend_option(name, value):
-  if name in options:
-    options[name] = options[name] + " " + value
+  if name in config:
+    config[name] = config[name] + " " + value
   else:
-    options[name] = value
+    config[name] = value
 
 def set_option(name, value):
-  options[name] = value
+  config[name] = value
 
 def branding():
   branding = option("branding-name")
@@ -192,58 +310,88 @@ def branding():
   return branding
 
 def is_mobile_platform():
-  all_platforms = option("platform")
-  if (-1 != all_platforms.find("android")):
-    return True
-  if (-1 != all_platforms.find("ios")):
-    return True
+  all_platforms = [
+    "android_arm64_v8a", 
+    "android_armv7",
+    "android_x86",
+    "android_x86_64",
+    "ios"
+  ]
+  for _platform in all_platforms:
+    if (_platform in platforms):
+      return True
   return False
 
 def parse_defaults():
-  defaults_path = base.get_script_dir() + "/../defaults"
-  if ("" != option("branding")):
-    defaults_path_branding = base.get_script_dir() + "/../../" + option("branding") + "/build_tools/defaults"
-    if base.is_file(defaults_path_branding):
-      defaults_path = defaults_path_branding
-  defaults_file = open(defaults_path, "r")
-  defaults_options = {}
-  for line in defaults_file:
-    name, value = line.partition("=")[::2]
-    k = name.strip()
-    v = value.strip(" '\"\r\n")
-    if ("true" == v.lower()):
-      v = "1"
-    if ("false" == v.lower()):
-      v = "0"
-    defaults_options[k] = v
+  if is_mobile_platform():
+    config["module"] = "mobile"
+    return
 
-  for name in defaults_options:
-    if name in options:
-      options[name] = options[name].replace("default", defaults_options[name])
-    else:
-      options[name] = defaults_options[name]
+  # core
+  modules = []
 
-  if ("config_addon" in defaults_options):
-    extend_option("config", defaults_options["config_addon"])
+  # add core module
+  if ("core" in config):
+    modules.append("core")
+  
+  if ("modulestrunks" in config):
+    modules.extend(config["modulestrunks"].split(" "))
+  if ("modules" in config):
+    modules.extend(config["modules"].split(" "))
+    
+  if ("server" in modules):
+    modules.append("server")
+  
+  if ("server" in modules):
+    if ("desktop" in modules):
+      if not "builder" in modules:
+        modules.append("builder")
 
+  if not "core" in modules:
+    modules.append("core")
+  config["modules"] = " ".join(modules)
+  
+  if "desktop" in modules or "builder" in modules or "server" in modules:
+    if "" == config.get("qt_dir", ""):
+      for _platform in platforms:
+        if (_platform.startswith("linux")):
+          config["qt_dir"] = "/usr/local/Qt5.15.3/5.15.3/gcc_64"
+          break
+        if (_platform.startswith("win")):
+          config["qt_dir"] = "C:/Qt/5.15.3/msvc2019_64"
+          break
+  
+  if "desktop" in modules:
+    if ("1" == config.get("clean", "1")):
+      if " " != config.get("config",""):
+        config["config"] = config["config"] + " "
+      config["config"] = config["config"] + "clean"
+
+  if "desktop" in modules:
+    if not base.is_windows():
+      if not "platform" in config:
+        config["platform"] = "native"
+        
+  # check vs-version
+  if ("2019" == config.get("vs-version", "")):
+    config["vs-path"] = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Auxiliary\\Build"
+  elif ("2022" == config.get("vs-version", "")):
+    config["vs-path"] = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build"
+  if ("" == config.get("vs-path", "")):
+    config["vs-path"] = "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC"
+  
+  # check sdkjs-plugins
+  if not "sdkjs-plugin" in config and "sdkjs-plugin-server" in config:
+    config["sdkjs-plugin"] = config["sdkjs-plugin-server"]
+    
+  # check qmake addon
+  if not "multiprocess" in config:
+    config["multiprocess"] = "0"
+  
   return
 
 def is_cef_107():
-  if ("linux" == base.host_platform()) and (5004 > base.get_gcc_version()) and not check_option("platform", "android"):
-    return True
-  return False
-
+  return (not check_option("config", "no_107_cef"))
+  
 def is_v8_60():
-  if check_option("platform", "linux_arm64"):
-    return False
-
-  if ("linux" == base.host_platform()) and (5004 > base.get_gcc_version()) and not check_option("platform", "android"):
-    return True
-
-  if ("windows" == base.host_platform()) and ("2015" == option("vs-version")):
-    return True
-
-  #if check_option("config", "use_v8"):
-  #  return True
-
-  return False
+  return check_option("config", "v8_60")

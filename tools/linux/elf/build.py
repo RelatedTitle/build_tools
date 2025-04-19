@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import sys
-sys.path.append('../../../scripts')
-import base
 import os
+sys.path.append(os.path.join('..', '..', '..', 'scripts'))
+import base
 import subprocess
 
 base.cmd("git", ["clone", "https://github.com/NixOS/patchelf.git", "patchelf_dir"])
@@ -17,5 +17,5 @@ base.cmd("make")
 os.chdir(cur_dir)
 if base.is_file("./patchelf"):
   base.delete_file("./patchelf")
-base.copy_file("./patchelf_dir/src/patchelf", "./patchelf")
+base.copy_file(os.path.join("./patchelf_dir", "src", "patchelf"), "./patchelf")
 base.delete_dir("patchelf_dir")

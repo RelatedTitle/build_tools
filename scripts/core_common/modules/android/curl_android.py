@@ -6,26 +6,25 @@ import base
 import os
 import android_ndk
 
-current_dir = base.get_script_dir() + "/../../core/Common/3dParty/curl"
-current_dir = os.path.abspath(current_dir)
-if not current_dir.endswith("/"):
-  current_dir += "/"
+current_dir = os.path.abspath(os.path.join(base.get_script_dir(), "../../core/Common/3dParty/curl"))
+# Ensure directory ends with separator for all platforms
+current_dir = os.path.join(current_dir, "")
 
 lib_version = "curl-7_68_0"
 lib_name = "curl-7.68.0"
 
 def fetch():
-  if not base.is_dir(current_dir + lib_name):
-    base.cmd("curl", ["-L", "-s", "-o", current_dir + lib_name + ".tar.gz", 
+  if not base.is_dir(os.path.join(current_dir, lib_name)):
+    base.cmd("curl", ["-L", "-s", "-o", os.path.join(current_dir, lib_name + ".tar.gz"), 
       "https://github.com/curl/curl/releases/download/" + lib_version + "/" + lib_name + ".tar.gz"])
-    base.cmd("tar", ["xfz", current_dir + lib_name + ".tar.gz", "-C", current_dir])
+    base.cmd("tar", ["xfz", os.path.join(current_dir, lib_name + ".tar.gz"), "-C", current_dir])
   return
 
 def build_host():
   return
 
 def build_arch(arch):
-  dst_dir = current_dir + "build/android/" + android_ndk.platforms[arch]["dst"]
+  dst_dir = os.path.join(current_dir, "build", "android", android_ndk.platforms[arch]["dst"])
   if base.is_dir(dst_dir):
     return
 
@@ -37,11 +36,11 @@ def build_arch(arch):
   base.set_env("ANDROID_NDK_HOME", ndk_dir)
   base.set_env("ANDROID_NDK", ndk_dir)
 
-  arch_build_dir = os.path.abspath(current_dir + "build/android/tmp")
+  arch_build_dir = os.path.abspath(os.path.join(current_dir, "build", "android", "tmp"))
   base.create_dir(arch_build_dir)
 
   old_cur = os.getcwd()
-  os.chdir(current_dir + lib_name)
+  os.chdir(os.path.join(current_dir, lib_name))
 
   params = []
   if ("arm64" == arch):
@@ -53,7 +52,7 @@ def build_arch(arch):
   elif ("x86" == arch):
     params.append("--host=i686-linux-android")
 
-  openssl_dir = os.path.abspath(current_dir + "../openssl/build/android/" + android_ndk.platforms[arch]["dst"])
+  openssl_dir = os.path.abspath(os.path.join(current_dir, "../openssl/build/android", android_ndk.platforms[arch]["dst"]))
 
   params.append("--enable-ipv6")
   params.append("--enable-static")
@@ -70,8 +69,8 @@ def build_arch(arch):
   os.chdir(old_cur)
 
   base.create_dir(dst_dir)
-  base.copy_file(arch_build_dir + "/lib/libcurl.a", dst_dir)
-  base.copy_dir(arch_build_dir + "/include", current_dir + "build/android/include")
+  base.copy_file(os.path.join(arch_build_dir, "lib", "libcurl.a"), dst_dir)
+  base.copy_dir(os.path.join(arch_build_dir, "include"), os.path.join(current_dir, "build", "android", "include"))
 
   base.delete_dir(arch_build_dir)
   return

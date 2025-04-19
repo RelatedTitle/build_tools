@@ -4,7 +4,7 @@ import config
 import base
 import os
 import sys
-sys.path.append(os.path.dirname(__file__) + "/..")
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import sln
 import qmake
 
@@ -40,25 +40,25 @@ def make(solution=""):
       for platform in platforms:
         if not platform in config.platforms:
           continue
-        core_lib_unbranding_dir = os.getcwd() + "/../core/build/lib/" + platform + base.qt_dst_postfix()
+        core_lib_unbranding_dir = os.path.join(os.getcwd(), "..", "core", "build", "lib", platform + base.qt_dst_postfix())
         if not base.is_dir(core_lib_unbranding_dir):
           base.create_dir(core_lib_unbranding_dir)
-        core_lib_branding_dir = os.getcwd() + "/../core/build/onlyoffice/lib/" + platform + base.qt_dst_postfix()
-        base.copy_file(core_lib_branding_dir + "/doctrenderer.dll", core_lib_unbranding_dir + "/doctrenderer.dll")
-        base.copy_file(core_lib_branding_dir + "/doctrenderer.lib", core_lib_unbranding_dir + "/doctrenderer.lib")
+        core_lib_branding_dir = os.path.join(os.getcwd(), "..", "core", "build", "onlyoffice", "lib", platform + base.qt_dst_postfix())
+        base.copy_file(os.path.join(core_lib_branding_dir, "doctrenderer.dll"), os.path.join(core_lib_unbranding_dir, "doctrenderer.dll"))
+        base.copy_file(os.path.join(core_lib_branding_dir, "doctrenderer.lib"), os.path.join(core_lib_unbranding_dir, "doctrenderer.lib"))
 
     # check replace
-    directory_builder_branding = os.getcwd() + "/../core/DesktopEditor/doctrenderer"
+    directory_builder_branding = os.path.join(os.getcwd(), "..", "core", "DesktopEditor", "doctrenderer")
     if base.is_dir(directory_builder_branding):
-      new_replace_path = base.correctPathForBuilder(directory_builder_branding + "/docbuilder.com/src/docbuilder.h")
+      new_replace_path = base.correctPathForBuilder(os.path.join(directory_builder_branding, "docbuilder.com", "src", "docbuilder.h"))
       if ("2019" == config.option("vs-version")):
-        base.make_sln_project("../core/DesktopEditor/doctrenderer/docbuilder.com/src", "docbuilder.com_2019.sln")
+        base.make_sln_project(os.path.join("..", "core", "DesktopEditor", "doctrenderer", "docbuilder.com", "src"), "docbuilder.com_2019.sln")
         if (True):
-          new_path_net = base.correctPathForBuilder(directory_builder_branding + "/docbuilder.net/src/docbuilder.net.cpp")
-          base.make_sln_project("../core/DesktopEditor/doctrenderer/docbuilder.net/src", "docbuilder.net.sln")
+          new_path_net = base.correctPathForBuilder(os.path.join(directory_builder_branding, "docbuilder.net", "src", "docbuilder.net.cpp"))
+          base.make_sln_project(os.path.join("..", "core", "DesktopEditor", "doctrenderer", "docbuilder.net", "src"), "docbuilder.net.sln")
           base.restorePathForBuilder(new_path_net)
       else:
-        base.make_sln_project("../core/DesktopEditor/doctrenderer/docbuilder.com/src", "docbuilder.com.sln")
+        base.make_sln_project(os.path.join("..", "core", "DesktopEditor", "doctrenderer", "docbuilder.com", "src"), "docbuilder.com.sln")
       base.restorePathForBuilder(new_replace_path)
 
   # build Java docbuilder wrapper
@@ -68,8 +68,8 @@ def make(solution=""):
         continue
 
       # build JNI library
-      qmake.make(platform, base.get_script_dir() + "/../../core/DesktopEditor/doctrenderer/docbuilder.java/src/jni/docbuilder_jni.pro", "", True)
+      qmake.make(platform, os.path.join(base.get_script_dir(), "..", "..", "core", "DesktopEditor", "doctrenderer", "docbuilder.java", "src", "jni", "docbuilder_jni.pro"), "", True)
       # build Java code to JAR
-      base.cmd_in_dir(base.get_script_dir() + "/../../core/DesktopEditor/doctrenderer/docbuilder.java", "python", ["make.py"])
+      base.cmd_in_dir(os.path.join(base.get_script_dir(), "..", "..", "core", "DesktopEditor", "doctrenderer", "docbuilder.java"), "python", ["make.py"])
 
   return

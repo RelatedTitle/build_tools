@@ -3,6 +3,7 @@
 import package_utils as utils
 import package_common as common
 import package_branding as branding
+import os
 
 def make():
   utils.log_h1("CORE")
@@ -15,7 +16,7 @@ def make():
 
 def make_archive():
   utils.set_cwd(utils.get_path(
-    "build_tools/out/" + common.prefix + "/" + branding.company_name.lower()))
+    os.path.join("build_tools", "out", common.prefix, branding.company_name.lower())))
 
   utils.log_h2("core archive build")
   utils.delete_file("core.7z")
@@ -28,8 +29,8 @@ def make_archive():
 
   utils.log_h2("core archive deploy")
   dest = "core-" + common.prefix.replace("_","-") + ".7z"
-  dest_latest = "archive/%s/latest/%s" % (common.branch, dest)
-  dest_version = "archive/%s/%s/%s" % (common.branch, common.build, dest)
+  dest_latest = os.path.join("archive", common.branch, "latest", dest)
+  dest_version = os.path.join("archive", common.branch, common.build, dest)
   ret = utils.s3_upload(
     "core.7z", "s3://" + branding.s3_bucket + "/" + dest_version)
   utils.set_summary("core archive deploy", ret)
@@ -59,7 +60,7 @@ def deploy_closuremaps_sdkjs(license):
   ret = True
   for f in maps:
     base = utils.get_basename(f)
-    key = "closure-maps/sdkjs/%s/%s/%s/%s" % (license, common.version, common.build, base)
+    key = os.path.join("closure-maps", "sdkjs", license, common.version, common.build, base)
     upload = utils.s3_upload(f, "s3://" + branding.s3_bucket + "/" + key)
     ret &= upload
     if upload:
@@ -84,7 +85,7 @@ def deploy_closuremaps_webapps(license):
   ret = True
   for f in maps:
     base = utils.get_relpath(f, "web-apps/deploy/web-apps/apps").replace("/", "_")
-    key = "closure-maps/web-apps/%s/%s/%s/%s" % (license, common.version, common.build, base)
+    key = os.path.join("closure-maps", "web-apps", license, common.version, common.build, base)
     upload = utils.s3_upload(f, "s3://" + branding.s3_bucket + "/" + key)
     ret &= upload
     if upload:

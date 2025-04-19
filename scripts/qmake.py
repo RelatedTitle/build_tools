@@ -4,7 +4,7 @@ import os
 import sys
 
 __dir__name__ = os.path.dirname(__file__)
-sys.path.append(__dir__name__ + '/core_common/modules/android')
+sys.path.append(os.path.join(__dir__name__, 'core_common', 'modules', 'android'))
 
 import base
 import config
@@ -25,7 +25,7 @@ def get_j_num():
 
 def check_support_platform(platform):
   qt_dir = base.qt_setup(platform)
-  if not base.is_file(qt_dir + "/bin/qmake") and not base.is_file(qt_dir + "/bin/qmake.exe"):
+  if not base.is_file(os.path.join(qt_dir, "bin", "qmake")) and not base.is_file(os.path.join(qt_dir, "bin", "qmake.exe")):
     return False
   return True
 
@@ -51,8 +51,8 @@ def make(platform, project, qmake_config_addon="", is_no_errors=False):
     pro_dir = pro_dir[:-1]
 
   makefile_name = "Makefile." + get_make_file_suffix(platform) 
-  makefile = pro_dir + "/" + makefile_name
-  stash_file = pro_dir + "/.qmake.stash"
+  makefile = os.path.join(pro_dir, makefile_name)
+  stash_file = os.path.join(pro_dir, ".qmake.stash")
 
   old_cur = os.getcwd()
   os.chdir(pro_dir)
@@ -90,12 +90,12 @@ def make(platform, project, qmake_config_addon="", is_no_errors=False):
   distclean_params = ["distclean", "-f", makefile]
   build_params = ["-nocache", file_pro] + base.qt_config_as_param(config_param) + qmake_addon
 
-  qmake_app = qt_dir + "/bin/qmake"
+  qmake_app = os.path.join(qt_dir, "bin", "qmake")
   # non windows platform
   if not base.is_windows():
-    if base.is_file(qt_dir + "/onlyoffice_qt.conf"):
+    if base.is_file(os.path.join(qt_dir, "onlyoffice_qt.conf")):
       build_params.append("-qtconf")
-      build_params.append(qt_dir + "/onlyoffice_qt.conf")
+      build_params.append(os.path.join(qt_dir, "onlyoffice_qt.conf"))
     base.cmd(qmake_app, build_params)
     base.correct_makefile_after_qmake(platform, makefile)
     if ("1" == config.option("clean")):

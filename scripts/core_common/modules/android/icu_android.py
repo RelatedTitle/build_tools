@@ -6,10 +6,9 @@ import base
 import os
 import android_ndk
 
-current_dir = base.get_script_dir() + "/../../core/Common/3dParty/icu/android"
-current_dir = os.path.abspath(current_dir)
-if not current_dir.endswith("/"):
-  current_dir += "/"
+current_dir = os.path.abspath(os.path.join(base.get_script_dir(), "../../core/Common/3dParty/icu/android"))
+# Ensure directory ends with separator for all platforms
+current_dir = os.path.join(current_dir, "")
 
 icu_major = "58"
 icu_minor = "3"
@@ -56,19 +55,21 @@ cpp_flags = [
 ]
 
 def fetch_icu():
-  if not base.is_dir(current_dir + "icu"):
-    base.cmd("git", ["clone", "--depth", "1", "--branch", "maint/maint-" + icu_major, "https://github.com/unicode-org/icu.git", current_dir + "icu2"])
-    base.copy_dir(current_dir + "icu2/icu4c", current_dir + "icu")
-    base.delete_dir_with_access_error(current_dir + "icu2")
+  icu_dir = os.path.join(current_dir, "icu")
+  if not base.is_dir(icu_dir):
+    icu2_dir = os.path.join(current_dir, "icu2")
+    base.cmd("git", ["clone", "--depth", "1", "--branch", "maint/maint-" + icu_major, "https://github.com/unicode-org/icu.git", icu2_dir])
+    base.copy_dir(os.path.join(icu2_dir, "icu4c"), icu_dir)
+    base.delete_dir_with_access_error(icu2_dir)
     
     if ("linux" == base.host_platform()):
-      base.replaceInFile(current_dir + "/icu/source/i18n/digitlst.cpp", "xlocale", "locale")
+      base.replaceInFile(os.path.join(current_dir, "icu/source/i18n/digitlst.cpp"), "xlocale", "locale")
     if False and ("mac" == base.host_platform()):
-      base.replaceInFile(current_dir + "/icu/source/tools/pkgdata/pkgdata.cpp", "cmd, \"%s %s -o %s%s %s %s%s %s %s\",", "cmd, \"%s %s -o %s%s %s %s %s %s %s\",")
+      base.replaceInFile(os.path.join(current_dir, "icu/source/tools/pkgdata/pkgdata.cpp"), "cmd, \"%s %s -o %s%s %s %s%s %s %s\",", "cmd, \"%s %s -o %s%s %s %s %s %s %s\",")
   return
 
 def build_host():
-  cross_build_dir = os.path.abspath(current_dir + "icu/cross_build")
+  cross_build_dir = os.path.abspath(os.path.join(current_dir, "icu/cross_build"))
   if not base.is_dir(cross_build_dir):
     base.create_dir(cross_build_dir)
     os.chdir(cross_build_dir)
@@ -91,14 +92,15 @@ def build_host():
     base.cmd("make", ["-j4"])
     base.cmd("make", ["install"], True)
 
-    base.create_dir(current_dir + "build")
-    base.copy_dir(cross_build_dir + "/include", current_dir + "build/include")
+    build_dir = os.path.join(current_dir, "build")
+    base.create_dir(build_dir)
+    base.copy_dir(os.path.join(cross_build_dir, "include"), os.path.join(build_dir, "include"))
 
     os.chdir(current_dir)
   return
 
 def build_arch(arch):
-  dst_dir = current_dir + "build/" + android_ndk.platforms[arch]["dst"]
+  dst_dir = os.path.join(current_dir, "build", android_ndk.platforms[arch]["dst"])
   if base.is_dir(dst_dir):
     return
 
@@ -108,8 +110,8 @@ def build_arch(arch):
   ndk_dir = android_ndk.ndk_dir()
   toolchain = android_ndk.toolchain_dir()
 
-  cross_build_dir = os.path.abspath(current_dir + "icu/cross_build")
-  arch_build_dir = os.path.abspath(current_dir + "build/tmp")
+  cross_build_dir = os.path.abspath(os.path.join(current_dir, "icu/cross_build"))
+  arch_build_dir = os.path.abspath(os.path.join(current_dir, "build/tmp"))
   base.create_dir(arch_build_dir)
   
   os.chdir(arch_build_dir)
@@ -119,9 +121,9 @@ def build_arch(arch):
   os.chdir(current_dir)
 
   base.create_dir(dst_dir)
-  base.copy_file(arch_build_dir + "/lib/libicuuc.a", dst_dir)
-  base.copy_file(arch_build_dir + "/stubdata/libicudata.a", dst_dir)
-  base.copy_file(arch_build_dir + "/data/out/icudt" + icu_major + "l.dat", dst_dir)
+  base.copy_file(os.path.join(arch_build_dir, "lib/libicuuc.a"), dst_dir)
+  base.copy_file(os.path.join(arch_build_dir, "stubdata/libicudata.a"), dst_dir)
+  base.copy_file(os.path.join(arch_build_dir, "data/out/icudt" + icu_major + "l.dat"), dst_dir)
 
   base.delete_dir(arch_build_dir)
   return

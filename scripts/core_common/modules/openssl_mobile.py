@@ -9,13 +9,13 @@ import subprocess
 import openssl_android
 
 def make():
-  path = base.get_script_dir() + "/../../core/Common/3dParty/openssl"
+  path = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/openssl")
   old_cur = os.getcwd()
   os.chdir(path)
   if (-1 != config.option("platform").find("android")):
       openssl_android.make()
       
-  if (-1 != config.option("platform").find("ios") and not base.is_dir("./build/ios")):
+  if (-1 != config.option("platform").find("ios") and not base.is_dir(os.path.join(path, "build/ios"))):
       subprocess.call(["./build-ios-openssl.sh"])
 
   os.chdir(old_cur)

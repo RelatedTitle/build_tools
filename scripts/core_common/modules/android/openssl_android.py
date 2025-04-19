@@ -6,12 +6,11 @@ import base
 import os
 import android_ndk
 
-current_dir = base.get_script_dir() + "/../../core/Common/3dParty/openssl"
-current_dir = os.path.abspath(current_dir)
-if not current_dir.endswith("/"):
-  current_dir += "/"
+current_dir = os.path.abspath(os.path.join(base.get_script_dir(), "../../core/Common/3dParty/openssl"))
+# Ensure directory ends with separator for all platforms
+current_dir = os.path.join(current_dir, "")
 
-lib_name="openssl-1.1.1t"
+lib_name = "openssl-1.1.1t"
 
 options = [
   "no-shared",
@@ -23,22 +22,25 @@ options = [
 ]
 
 def fetch():
-  if not base.is_dir(current_dir + lib_name):
-    base.cmd("curl", ["-L", "-s", "-o", current_dir + lib_name + ".tar.gz", 
+  if not base.is_dir(os.path.join(current_dir, lib_name)):
+    base.cmd("curl", ["-L", "-s", "-o", os.path.join(current_dir, lib_name + ".tar.gz"), 
       "https://www.openssl.org/source/" + lib_name + ".tar.gz"])
-    base.cmd("tar", ["xfz", current_dir + lib_name + ".tar.gz", "-C", current_dir])
+    base.cmd("tar", ["xfz", os.path.join(current_dir, lib_name + ".tar.gz"), "-C", current_dir])
   return
 
 def build_host():
   # not needed, just create directories
-  if not base.is_dir(current_dir + "/build"):
-    base.create_dir(current_dir + "/build")
-  if not base.is_dir(current_dir + "/build/android"):
-    base.create_dir(current_dir + "/build/android")
+  build_dir = os.path.join(current_dir, "build")
+  if not base.is_dir(build_dir):
+    base.create_dir(build_dir)
+  
+  android_dir = os.path.join(build_dir, "android")
+  if not base.is_dir(android_dir):
+    base.create_dir(android_dir)
   return
 
 def build_arch(arch):
-  dst_dir = current_dir + "build/android/" + android_ndk.platforms[arch]["dst"]
+  dst_dir = os.path.join(current_dir, "build", "android", android_ndk.platforms[arch]["dst"])
   if base.is_dir(dst_dir):
     return
 
@@ -50,11 +52,11 @@ def build_arch(arch):
   base.set_env("ANDROID_NDK_HOME", ndk_dir)
   base.set_env("ANDROID_NDK", ndk_dir)
 
-  arch_build_dir = os.path.abspath(current_dir + "build/android/tmp")
+  arch_build_dir = os.path.abspath(os.path.join(current_dir, "build", "android", "tmp"))
   base.create_dir(arch_build_dir)
 
   old_cur = os.getcwd()
-  os.chdir(current_dir + lib_name)
+  os.chdir(os.path.join(current_dir, lib_name))
 
   base.cmd("./Configure", ["android-" + arch, "--prefix=" + arch_build_dir, "-D__ANDROID_API__=" + android_ndk.platforms[arch]["api"]] + options)
 
@@ -68,10 +70,11 @@ def build_arch(arch):
   os.chdir(old_cur)
 
   base.create_dir(dst_dir)
-  base.create_dir(dst_dir + "/lib")
-  base.copy_file(arch_build_dir + "/lib/libcrypto.a", dst_dir + "/lib")
-  base.copy_file(arch_build_dir + "/lib/libssl.a", dst_dir + "/lib")
-  base.copy_dir(arch_build_dir + "/include", dst_dir + "/include")
+  lib_dir = os.path.join(dst_dir, "lib")
+  base.create_dir(lib_dir)
+  base.copy_file(os.path.join(arch_build_dir, "lib", "libcrypto.a"), lib_dir)
+  base.copy_file(os.path.join(arch_build_dir, "lib", "libssl.a"), lib_dir)
+  base.copy_dir(os.path.join(arch_build_dir, "include"), os.path.join(dst_dir, "include"))
 
   base.delete_dir(arch_build_dir)
   return

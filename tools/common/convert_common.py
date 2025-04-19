@@ -6,6 +6,9 @@ import base
 import os
 import glob
 from xml.sax.saxutils import escape
+import shutil
+import re
+import subprocess
 
 AVS_OFFICESTUDIO_FILE_DOCUMENT                      = 0x0040
 AVS_OFFICESTUDIO_FILE_DOCUMENT_DOCX                 = AVS_OFFICESTUDIO_FILE_DOCUMENT + 0x0001
@@ -162,3 +165,135 @@ def convertFile(directory_x2t, file_input, file_output, convert_params):
   base.delete_dir(temp_dir)
 
   os.chdir(cur_path)
+
+def convert(directory, langs_from, langs_to, out_dir, cache_dir, server):
+  temp_dir = os.path.join(out_dir, "temp")
+
+  base_path = "HtmlFileInternal"
+  base_dir = os.path.join(directory, base_path)
+  
+  base_js_dir = os.path.join(base_dir, "js")
+  base_sdkjs_dir = os.path.join(base_dir, "sdkjs")
+  base_web_apps_dir = os.path.join(base_dir, "web-apps")
+  
+  config_content = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+  config_content += "<Settings>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/Native/native.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/Native/jquery_native.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/FontsFreeType/FontFile.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/FontsFreeType/FontManager.js") + "</file>"
+  
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "word/sdk-all-min.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "word/sdk-all.js") + "</file>"
+  
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "cell/sdk-all-min.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "cell/sdk-all.js") + "</file>"
+  
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "slide/sdk-all-min.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "slide/sdk-all.js") + "</file>"
+  
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "pdf/sdk-all-min.js") + "</file>"
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "pdf/sdk-all.js") + "</file>"
+  
+  config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/HtmlFile/Manager.js") + "</file>"
+  if ("windows" != os.name):
+    config_content += "<file>" + os.path.join(base_sdkjs_dir, "common/HtmlFile/ascshared/ascshared.js") + "</file>"
+  
+  config_content += "<htmlfile>" + os.path.join(base_web_apps_dir, "apps/documenteditor/main") + "</htmlfile>"
+  config_content += "<htmlfile>" + os.path.join(base_web_apps_dir, "apps/presentationeditor/main") + "</htmlfile>"
+  config_content += "<htmlfile>" + os.path.join(base_web_apps_dir, "apps/spreadsheeteditor/main") + "</htmlfile>"
+  config_content += "<htmlfile>" + os.path.join(base_web_apps_dir, "apps/pdfeditor/main") + "</htmlfile>"
+  
+  if ("" != server):
+    config_content += "<DoctSdk>" + server + "/web-apps/apps/api/documents/api.js</DoctSdk>"
+  else:
+    config_content += "<DoctSdk></DoctSdk>"
+  
+  config_content += "</Settings>"
+  
+  config_path = os.path.join(temp_dir, "convert.config")
+  
+  if not os.path.exists(temp_dir):
+    os.makedirs(temp_dir)
+  
+  with open(config_path, "w") as file:
+    file.write(config_content)
+  
+  builder_exe = "HtmlFileInternal/Node/node"
+  if ("windows" == os.name):
+    builder_exe += ".exe"
+  
+  args = [os.path.join(directory, builder_exe), os.path.join(base_js_dir, "HtmlFileInternal/translate/sources/convert.js")]
+  args.append("en-US")
+  args.append("ru-RU")
+  args.append("true")
+  args.append(temp_dir)
+  args.append(cache_dir)
+  process = subprocess.Popen(args, stdout=subprocess.PIPE)
+  stdoutdata, stderrdata = process.communicate()
+  
+  global_langs = []
+  translations = []
+  
+  with open(os.path.join(temp_dir, "languages.xlsx.json"), "r") as file:
+    languages = eval(file.read())
+    
+    for language in languages["translations"]:
+      global_langs.append(language["key"])
+      
+      translation = {}
+      translation["key"] = language["key"]
+      translation["translate"] = {}
+      translations.append(translation)
+  
+  for lang_from in langs_from:
+    from_file = os.path.join(temp_dir, lang_from + ".js")
+    if os.path.exists(from_file):
+      text_from = ""
+      with open(from_file, "r") as file:
+        text_from = file.read()
+      
+      for lang_to in langs_to:
+        to_file = os.path.join(out_dir, lang_to + ".js")
+        if (lang_from == lang_to):
+          shutil.copy2(from_file, to_file)
+        else:
+          text_to = ""
+          with open(from_file, "r") as file:
+            text_to = file.read()
+        
+          to_find = "window.Asc.plugin.tr."
+          index1 = text_to.find(to_find)
+          index2 = -1
+        
+          if (-1 != index1):
+            index1 += len(to_find)
+            index2 = text_to.find(");", index1)
+            
+          if (-1 != index2):
+            values_from = eval(text_to[index1:index2])
+            
+            from_file_lang = os.path.join(temp_dir, lang_to + ".js")
+            if os.path.exists(from_file_lang):
+              text_from_lang = ""
+              with open(from_file_lang, "r") as file:
+                text_from_lang = file.read()
+              
+              to_find = "window.Asc.plugin.tr."
+              index1 = text_from_lang.find(to_find)
+              index2 = -1
+              
+              if (-1 != index1):
+                index1 += len(to_find)
+                index2 = text_from_lang.find(");", index1)
+                
+              if (-1 != index2):
+                values_to = eval(text_from_lang[index1:index2])
+                
+                text_to = text_to.replace("window.Asc.plugin.tr(" + str(values_from), "window.Asc.plugin.tr(" + str(values_to))
+                
+                with open(to_file, "w") as file:
+                  file.write(text_to)
+  
+  if os.path.exists(temp_dir):
+    shutil.rmtree(temp_dir)

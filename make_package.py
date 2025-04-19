@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import sys
-sys.path.append("scripts")
+import os
+sys.path.append(os.path.join("scripts"))
 import argparse
 import package_common as common
 import package_utils as utils
@@ -44,7 +45,7 @@ utils.set_env("BRANCH_NAME", common.branch)
 common.branding = args.branding
 common.timestamp = utils.get_timestamp()
 common.workspace_dir = utils.get_abspath(utils.get_script_dir(__file__) + "/..")
-common.branding_dir = utils.get_abspath(common.workspace_dir + "/" + args.branding) if args.branding else common.workspace_dir
+common.branding_dir = utils.get_abspath(os.path.join(common.workspace_dir, args.branding)) if args.branding else common.workspace_dir
 common.summary = []
 utils.log("os_family:     " + common.os_family)
 utils.log("platform:      " + str(common.platform))
@@ -62,8 +63,8 @@ utils.log("branding_dir:  " + common.branding_dir)
 
 # branding
 if common.branding is not None:
-  sys.path.insert(-1, \
-      utils.get_path("../" + common.branding + "/build_tools/scripts"))
+  sys.path.insert(-1, 
+      utils.get_path(os.path.join("..", common.branding, "build_tools", "scripts")))
 
 import package_core
 import package_desktop

@@ -8,7 +8,7 @@ import os
 def make():
   print("[fetch]: googletest")
 
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/googletest"
+  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/googletest")
   old_cur = os.getcwd()
   os.chdir(base_dir)
 

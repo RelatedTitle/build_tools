@@ -19,7 +19,7 @@ def make():
 
   print("[fetch]: html")
 
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/html"
+  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/html")
   
   os.chdir(base_dir)
   base.check_module_version("2", clear_module)

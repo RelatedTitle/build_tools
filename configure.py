@@ -46,13 +46,13 @@ parser.add_option("--multiprocess", action="store", type="string", dest="multipr
 (options, args) = parser.parse_args(arguments)
 configOptions = vars(options)
 
-configStore = open(os.path.dirname(os.path.realpath(__file__)) + "/config","w+")
+configStore = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "config"), "w+")
 for option in configOptions:
   writeOption = ""
   if (isinstance(configOptions[option], list)):
-  	writeOption = ", ".join(configOptions[option])
+    writeOption = ", ".join(configOptions[option])
   else:
-  	writeOption = configOptions[option]
+    writeOption = configOptions[option]
 
   if ("" != writeOption):
     configStore.write(option + "=\"" + writeOption + "\"\n")

@@ -10,13 +10,13 @@ import base
 import curl_android
 
 def make():
-  path = base.get_script_dir() + "/../../core/Common/3dParty/curl"
+  path = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/curl")
   old_cur = os.getcwd()
   os.chdir(path)
   if (-1 != config.option("platform").find("android")):
     curl_android.make()
   elif (-1 != config.option("platform").find("ios")):
-    if base.is_dir(path + "/build/ios"):
+    if base.is_dir(os.path.join(path, "build/ios")):
       os.chdir(old_cur)
       return
     subprocess.call(["./build-ios-curl.sh"])

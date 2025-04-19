@@ -19,7 +19,7 @@ def make():
     return;
 
   print("[fetch & build]: glew")
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/glew"
+  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/glew")
   old_cur = os.getcwd()
   os.chdir(base_dir)
 

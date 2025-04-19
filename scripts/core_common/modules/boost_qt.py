@@ -16,7 +16,7 @@ def make(src_dir, modules, build_platform="android", qmake_addon=""):
 
   for module in modules:
     print("boost-module: " + module + " ...")
-    module_dir = src_dir + "/libs/" + module
+    module_dir = os.path.join(src_dir, "libs", module)
     os.chdir(module_dir)
     pro_file_content = []
     pro_file_content.append("QT -= core gui")
@@ -37,9 +37,10 @@ def make(src_dir, modules, build_platform="android", qmake_addon=""):
     pro_file_content.append("SOURCES += $$files($$PWD/src/*.cpp, true)")
     pro_file_content.append("")
     pro_file_content.append("DESTDIR = $$BOOST_SOURCES/../build/" + build_platform + "/lib/$$CORE_BUILDS_PLATFORM_PREFIX")
-    base.save_as_script(module_dir + "/" + module + ".pro", pro_file_content)
+    pro_file_path = os.path.join(module_dir, module + ".pro")
+    base.save_as_script(pro_file_path, pro_file_content)
     os.chdir(module_dir)
-    qmake.make_all_platforms(module_dir + "/" + module + ".pro", qmake_addon)
+    qmake.make_all_platforms(pro_file_path, qmake_addon)
   
   os.chdir(old_cur)
   return

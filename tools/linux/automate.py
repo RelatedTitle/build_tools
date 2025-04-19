@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import sys
-sys.path.append('../../scripts')
-import base
 import os
+sys.path.append(os.path.join('..', '..', 'scripts'))
+import base
 import subprocess
 import deps
 
@@ -60,9 +60,9 @@ def install_qt_prebuild():
   url_amd64 = "https://s3.eu-west-1.amazonaws.com/static-doc.teamlab.eu.com/qt/5.9.9/linux_amd64/qt_binary.7z"
   base.download(url_amd64, "./qt_amd64.7z")
   base.extract("./qt_amd64.7z", "./qt_build")
-  base.create_dir("./qt_build/Qt-5.9.9")
-  base.cmd("mv", ["./qt_build/qt_amd64", "./qt_build/Qt-5.9.9/gcc_64"])
-  base.setup_local_qmake("./qt_build/Qt-5.9.9/gcc_64/bin")
+  base.create_dir(os.path.join("./qt_build", "Qt-5.9.9"))
+  base.cmd("mv", ["./qt_build/qt_amd64", os.path.join("./qt_build", "Qt-5.9.9", "gcc_64")])
+  base.setup_local_qmake(os.path.join("./qt_build", "Qt-5.9.9", "gcc_64", "bin"))
   return
 
 if not base.is_file("./node_js_setup_14.x"):
@@ -73,7 +73,7 @@ if not base.is_dir("./qt_build"):
   print("install qt...")
   install_qt_prebuild()
 
-branch = get_branch_name("../..")
+branch = get_branch_name(os.path.join("..", ".."))
 
 array_args = sys.argv[1:]
 array_modules = []
@@ -108,7 +108,7 @@ print("---------------------------------------------")
 build_tools_params = ["--branch", branch, 
                       "--module", modules, 
                       "--update", "1",
-                      "--qt-dir", os.getcwd() + "/qt_build/Qt-5.9.9"] + params
+                      "--qt-dir", os.path.join(os.getcwd(), "qt_build", "Qt-5.9.9")] + params
 
-base.cmd_in_dir("../..", "./configure.py", build_tools_params)
-base.cmd_in_dir("../..", "./make.py")
+base.cmd_in_dir(os.path.join("..", ".."), "./configure.py", build_tools_params)
+base.cmd_in_dir(os.path.join("..", ".."), "./make.py")

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import sys
-sys.path.append('../../scripts')
-import base
 import os
+sys.path.append(os.path.join('..', '..', 'scripts'))
+import base
 import glob
 import base64
 
@@ -33,27 +33,27 @@ def change_property(data_src, name, value):
   return data
 
 def change_author_name(file_input):
-  temp_dir = os.getcwd().replace("\\", "/") + "/temp"
+  temp_dir = os.path.join(os.getcwd().replace("\\", "/"), "temp")
   base.create_dir(temp_dir)
 
   app = "7za" if ("mac" == base.host_platform()) else "7z"
   base.cmd_exe(app, ["x", "-y", file_input, "-o" + temp_dir, "docProps/core.xml", "-r"])
 
-  with open(temp_dir + "/docProps/core.xml", 'r', encoding='utf-8') as file:
+  with open(os.path.join(temp_dir, "docProps", "core.xml"), 'r', encoding='utf-8') as file:
     data = file.read()
 
   data = change_property(data, "creator", "")
   data = change_property(data, "lastModifiedBy", "")
 
-  with open(temp_dir + "/docProps/core.xml", 'w', encoding='utf-8') as file:
+  with open(os.path.join(temp_dir, "docProps", "core.xml"), 'w', encoding='utf-8') as file:
     file.write(data)
 
-  base.cmd_exe(app, ["a", "-r", file_input, temp_dir + "/docProps"])
+  base.cmd_exe(app, ["a", "-r", file_input, os.path.join(temp_dir, "docProps")])
   base.delete_dir(temp_dir)
 
 def get_files(dir):
   arr_files = []
-  for file in glob.glob(dir + "/*"):
+  for file in glob.glob(os.path.join(dir, "*")):
     if base.is_file(file):
       arr_files.append(file)      
     elif base.is_dir(file):
@@ -86,7 +86,7 @@ src_files = get_files(src_directory)
 for file in src_files:
   directory = os.path.dirname(file)
   name = os.path.basename(file)
-  directory_out_file = dst_directory + "/" + get_local_path(src_directory, directory)
+  directory_out_file = os.path.join(dst_directory, get_local_path(src_directory, directory))
   if not base.is_dir(directory_out_file):
     os.makedirs(directory_out_file, exist_ok=True)
   name_without_ext = os.path.splitext(name)[0]
@@ -104,7 +104,7 @@ for file in src_files:
   if (len(dst_name) < 4) or (dst_name[0:4] != "[32]"):
     dst_name = "[32]" + base64.b32encode(name_without_ext.encode("utf-8")).decode("utf-8")
 
-  dst_file = directory_out_file + "/" + dst_name + "." + dst_ext
+  dst_file = os.path.join(directory_out_file, dst_name + "." + dst_ext)
 
   os.makedirs(directory_out_file, exist_ok=True)
   base.cmd_in_dir(x2t_directory, "x2t", [file, dst_file])

@@ -3,12 +3,12 @@
 import os 
 import sys
 __dir__name__ = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(__dir__name__ + '/scripts')
-sys.path.append(__dir__name__ + '/scripts/develop')
-sys.path.append(__dir__name__ + '/scripts/develop/vendor')
-sys.path.append(__dir__name__ + '/scripts/core_common')
-sys.path.append(__dir__name__ + '/scripts/core_common/modules')
-sys.path.append(__dir__name__ + '/scripts/core_common/modules/android')
+sys.path.append(os.path.join(__dir__name__, 'scripts'))
+sys.path.append(os.path.join(__dir__name__, 'scripts/develop'))
+sys.path.append(os.path.join(__dir__name__, 'scripts/develop/vendor'))
+sys.path.append(os.path.join(__dir__name__, 'scripts/core_common'))
+sys.path.append(os.path.join(__dir__name__, 'scripts/core_common/modules'))
+sys.path.append(os.path.join(__dir__name__, 'scripts/core_common/modules/android'))
 import config
 import base
 import build_sln
@@ -37,7 +37,7 @@ base.set_env("BUILD_PLATFORM", config.option("platform"))
 
 # branding
 if ("1" != base.get_env("OO_RUNNING_BRANDING")) and ("" != config.option("branding")):
-  branding_dir = base_dir + "/../" + config.option("branding")
+  branding_dir = os.path.join(base_dir, "..", config.option("branding"))
 
   if ("1" == config.option("update")):
     is_exist = True
@@ -52,11 +52,11 @@ if ("1" != base.get_env("OO_RUNNING_BRANDING")) and ("" != config.option("brandi
 
     base.cmd_in_dir(branding_dir, "git", ["pull"], True)
 
-  if base.is_file(branding_dir + "/build_tools/make.py"):
-    base.check_build_version(branding_dir + "/build_tools")
+  if base.is_file(os.path.join(branding_dir, "build_tools/make.py")):
+    base.check_build_version(os.path.join(branding_dir, "build_tools"))
     base.set_env("OO_RUNNING_BRANDING", "1")
     base.set_env("OO_BRANDING", config.option("branding"))
-    base.cmd_in_dir(branding_dir + "/build_tools", "python", ["make.py"])
+    base.cmd_in_dir(os.path.join(branding_dir, "build_tools"), "python", ["make.py"])
     exit(0)
 
 # correct defaults (the branding repo is already updated)

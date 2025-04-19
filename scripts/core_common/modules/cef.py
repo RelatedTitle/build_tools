@@ -9,7 +9,7 @@ import os
 def make():
   print("[fetch & build]: cef")
 
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/cef"
+  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/cef")
   old_cur = os.getcwd()
   os.chdir(base_dir)
 
@@ -71,17 +71,18 @@ def make():
     base.delete_file(archive_name_data)
     base.writeFile(archive_name_data, data_url)
 
-    base.create_dir("./" + build_dir_name)
+    build_dir = os.path.join(".", build_dir_name)
+    base.create_dir(build_dir)
 
     # deploy
     if (0 == platform.find("mac")):
-      base.cmd("mv", ["Chromium Embedded Framework.framework", build_dir_name + "/Chromium Embedded Framework.framework"])
+      base.cmd("mv", ["Chromium Embedded Framework.framework", os.path.join(build_dir_name, "Chromium Embedded Framework.framework")])
       base.delete_dir("./Chromium Embedded Framework.framework")
     else:
-      base.copy_files("cef_binary/Release/*", build_dir_name + "/")
-      base.copy_files("cef_binary/Resources/*", build_dir_name + "/")
+      base.copy_files("cef_binary/Release/*", os.path.join(build_dir_name, ""))
+      base.copy_files("cef_binary/Resources/*", os.path.join(build_dir_name, ""))
       if (0 == platform.find("linux")):
-        base.cmd("chmod", ["a+xr", build_dir_name + "/locales"])
+        base.cmd("chmod", ["a+xr", os.path.join(build_dir_name, "locales")])
       base.delete_dir("./cef_binary")
 
     os.chdir(base_dir)
