@@ -26,12 +26,14 @@ jobs:
 
       # --- Checkout Paths (Relative to Workspace Root) ---
       # build_tools repo is checked out to workspace root itself.
-      CORE_DIR_REL: ../core # Core repo checkout dir relative path - updated to be one level up
-      SDKJS_DIR_REL: ../sdkjs # SDKjs repo checkout dir relative path - updated to be one level up
+      BUILD_TOOLS_DIR: build_tools_repo # Directory to check out build_tools within workspace
+      CORE_DIR: core_repo # Directory to check out core within workspace
+      SDKJS_DIR: sdkjs_repo # Directory to check out sdkjs within workspace
+      PARENT_DIR: parent # Parent directory to create for expected structure
       ARTIFACT_SDK_DIR_REL: artifact_sdk # Dir for final artifacts relative path
 
       # --- Key Subdirectory Paths (Relative to Workspace Root) ---
-      CORE_3RDPARTY_DIR_REL: ../core/Common/3dParty # Updated to reflect the new core location
+      CORE_3RDPARTY_DIR_REL: core_repo/Common/3dParty # Relative path for caching 3rd party deps
       QT_INSTALL_BASE_DIR_REL: Qt_Install # Base dir for Qt installation relative path
 
       # --- Absolute Paths ---
@@ -53,34 +55,73 @@ jobs:
 
     steps:
       # --------------------------------------------------------------------
-      # 1. Checkout Repositories (Main repo to workspace root)
+      # 1. Checkout Repositories and Create Expected Directory Structure
       # --------------------------------------------------------------------
       - name: Checkout Main Repo (build_tools)
         uses: actions/checkout@v4
         with:
-          path: ${{ github.workspace }} # Checkout build_tools to workspace root
+          path: ${{ env.BUILD_TOOLS_DIR }} # Checkout build_tools to subdir
           fetch-depth: 1
 
       - name: Checkout Core Repo
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/core
-          path: ${{ github.workspace }}/../core # Checkout to ../core (sibling to build_tools)
+          path: ${{ env.CORE_DIR }} # Checkout to core_repo
           fetch-depth: 1
 
       - name: Checkout SDKjs Repo
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/sdkjs
-          path: ${{ github.workspace }}/../sdkjs # Checkout to ../sdkjs (sibling to build_tools)
+          path: ${{ env.SDKJS_DIR }} # Checkout to sdkjs_repo
           fetch-depth: 1
+
+      - name: Create Directory Structure
+        shell: pwsh
+        run: |
+          # Create parent directory for symlink targets
+          New-Item -ItemType Directory -Path "${{ env.PARENT_DIR }}" -Force
+
+          # Create directory junctions for the expected structure
+          $workspaceRoot = "${{ github.workspace }}"
+          $parentDir = Join-Path $workspaceRoot "${{ env.PARENT_DIR }}"
+
+          # Move the build_tools contents to the parent directory
+          $buildToolsDir = Join-Path $workspaceRoot "${{ env.BUILD_TOOLS_DIR }}"
+          $parentBuildToolsDir = Join-Path $parentDir "build_tools"
+          New-Item -ItemType Directory -Path $parentBuildToolsDir -Force
+          Get-ChildItem -Path $buildToolsDir | Copy-Item -Destination $parentBuildToolsDir -Recurse -Force
+
+          # Create core and sdkjs symlinks in the parent directory
+          $coreDir = Join-Path $workspaceRoot "${{ env.CORE_DIR }}"
+          $sdkjsDir = Join-Path $workspaceRoot "${{ env.SDKJS_DIR }}"
+          $parentCoreDir = Join-Path $parentDir "core"
+          $parentSdkjsDir = Join-Path $parentDir "sdkjs"
+
+          # Use New-Item with Junction to create directory junctions
+          cmd /c mklink /J "$parentCoreDir" "$coreDir"
+          cmd /c mklink /J "$parentSdkjsDir" "$sdkjsDir"
+
+          # For scripts to find core in the correct location relative to build_tools
+          # Create a junction from build_tools_repo/../../core to core_repo
+          $buildToolsParentPath = Join-Path $buildToolsDir ".."
+          $buildToolsGrandparentPath = Join-Path $buildToolsParentPath ".."
+          New-Item -ItemType Directory -Path $buildToolsGrandparentPath -Force -EA SilentlyContinue
+          $relativeCoreTarget = Join-Path $buildToolsGrandparentPath "core"
+          cmd /c mklink /J "$relativeCoreTarget" "$coreDir"
+
+          # Show the created directory structure
+          Write-Host "Created directory structure:"
+          Get-ChildItem -Path $workspaceRoot -Recurse -Depth 2 | Select-Object FullName
+
+          # Set the working directory for subsequent steps
+          echo "PARENT_BUILD_TOOLS_DIR=$parentBuildToolsDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Display Initial Workspace Structure
         run: |
           Write-Host "::group::Initial Workspace Structure (${{ github.workspace }})"
-          Get-ChildItem -Recurse -Force -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length, LastWriteTime | Format-Table -AutoSize -Wrap
-          # Alternatively, if tree command is available on runner:
-          # cmd /c tree /F /A ${{ github.workspace }} || echo "Tree command not available."
+          Get-ChildItem -Recurse -Force -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length, LastWriteTime | Format-Table -AutoSize -Wrap
           Write-Host "::endgroup::"
 
       # --------------------------------------------------------------------
@@ -132,7 +173,7 @@ jobs:
         id: third_party_cache_props
         run: |
           # Hash module scripts relative to workspace root
-          $Key = "${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-${{ hashFiles('scripts/core_common/modules/**') }}"
+          $Key = "${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-${{ hashFiles('**/scripts/core_common/modules/**') }}"
           $RestoreKeyPrefix = "${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-"
           echo "key=$Key" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           echo "restore_prefix=$RestoreKeyPrefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -206,10 +247,10 @@ jobs:
           Write-Host "::endgroup::"
 
       # --------------------------------------------------------------------
-      # 6. Configure & Build (Working Directory = Workspace Root)
+      # 6. Configure & Build (Working Directory = Parent Build Tools Dir)
       # --------------------------------------------------------------------
       - name: Configure ONLYOFFICE Build
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.PARENT_BUILD_TOOLS_DIR }}
         shell: bash
         run: |
           echo "::group::Running configure.py"
@@ -222,7 +263,7 @@ jobs:
           echo "--- Config file contents (after configure.py): ---"; cat config || echo "Config file 'config' not found or empty."; echo "--- End Config file contents ---"; echo "::endgroup::"
 
       - name: Add Qt Dir to Build Config
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.PARENT_BUILD_TOOLS_DIR }}
         shell: pwsh
         run: |
           $configFile = "config"
@@ -237,7 +278,7 @@ jobs:
           } else { Write-Warning "$configFile not found. Creating it."; Set-Content -Path $configFile -Value $qtDirLine -Encoding ascii }
 
       - name: Build ONLYOFFICE Modules
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.PARENT_BUILD_TOOLS_DIR }}
         shell: bash # Keep bash for timing/status logic
         env:
           QTDIR: ${{ steps.qt_paths_action.outputs.qt_install_dir }}
@@ -266,15 +307,15 @@ jobs:
           $ArtifactDir = Join-Path "${{ github.workspace }}" "${{ env.ARTIFACT_SDK_DIR_REL }}"
           $IncludeDir = Join-Path $ArtifactDir "include"; $LibDir = Join-Path $ArtifactDir "lib"
           New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null; New-Item -ItemType Directory -Path $IncludeDir -Force | Out-Null; New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
-          $BuildToolsAbsDir = "${{ github.workspace }}"
-          $CoreAbsDir = Join-Path "${{ github.workspace }}" "${{ env.CORE_DIR_REL }}" # Updated to use the env variable
+          $BuildToolsAbsDir = "${{ env.PARENT_BUILD_TOOLS_DIR }}"
+          $CoreAbsDir = Join-Path "${{ github.workspace }}" "${{ env.CORE_DIR }}"
           $BrandSegment = $Env:ONLYOFFICE_BRANDING_NAME; if ($BrandSegment) { $BrandPath = "$BrandSegment\" } else { $BrandPath = "onlyoffice\" }; $BuildConfig = "Release"; $PlatformPath = $Env:OO_PLATFORM
           $SourceLibDirCandidates = @( Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" "$($PlatformPath)_$BuildConfig", Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" $PlatformPath, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" $BuildConfig, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" ); $SourceLibDir = $null
           Write-Host "Searching for source library dir..."; foreach ($candidate in $SourceLibDirCandidates) { Write-Host "Checking: $candidate"; if (Test-Path $candidate -PathType Container) { Write-Host "Found: $candidate"; $SourceLibDir = $candidate; break } }; if (-not $SourceLibDir) { throw "Source lib dir not found! Checked: $($SourceLibDirCandidates -join ', ')" }
           $HeaderSourceCore = Join-Path $CoreAbsDir "DesktopEditor" "doctrenderer" "docbuilder.h"; $HeaderSourceCommon = Join-Path $CoreAbsDir "DesktopEditor" "common" "base_export.h"
           Write-Host "Copying headers..."; if (Test-Path $HeaderSourceCore) { Copy-Item $HeaderSourceCore "$IncludeDir\" -Force -EA Stop } else { throw "Header not found: $HeaderSourceCore" }; if (Test-Path $HeaderSourceCommon) { Copy-Item $HeaderSourceCommon "$IncludeDir\" -Force -EA SilentlyContinue } else { Write-Warning "Optional header not found: $HeaderSourceCommon" };
           $coreLibs = @( "doctrenderer", "kernel", "graphics", "UnicodeConverter", "PdfFile", "XpsFile", "DjVuFile", "HtmlFile2", "DocxRenderer" ); $icuLibsPatterns = @( "icudt*.dll", "icuuc*.dll", "icuin*.dll" ); $v8Files = @( "v8_monolith.lib", "snapshot_blob.bin", "icudtl.dat", "v8.dll", "v8_libbase.dll", "v8_libplatform.dll" )
-          # Use relative path for 3rd party dir within workspace
+          # Use full path for 3rd party dir within workspace
           $Core3rdPartyDirAbs = Join-Path "${{ github.workspace }}" "${{ env.CORE_3RDPARTY_DIR_REL }}"
           $V8SourceDir = Join-Path $Core3rdPartyDirAbs "v8_89" "v8" "out.gn" $PlatformPath $BuildConfig; $IcuSourceDir = Join-Path $Core3rdPartyDirAbs "icu" $PlatformPath "build"
           function Copy-BuildFile { param($SourceName, $SourceDir, $DestDir, [switch]$AllowMissing=$false); $SourcePath = Join-Path $SourceDir $SourceName; if (Test-Path $SourcePath -PathType Leaf) { Write-Host "  Copying '$SourceName'..."; Copy-Item $SourcePath "$DestDir\" -Force -EA Stop; return $true } elseif (-not $AllowMissing) { Write-Error " Required file not found: '$SourceName' in '$SourceDir'"; throw "Missing: $SourceName" } else { Write-Host "  Optional file not found: '$SourcePath'"; return $false } }; function Copy-BuildPattern { param($SourcePattern, $SourceDir, $DestDir, [switch]$AllowMissing=$false); $foundItems = $false; if (Test-Path $SourceDir -PathType Container) { $items = Get-ChildItem -Path $SourceDir -Filter $SourcePattern -File -EA SilentlyContinue; if ($items) { Write-Host "  Copying '$SourcePattern'..."; Copy-Item $items.FullName "$DestDir\" -Force -EA Stop; $foundItems = $true } }; if (-not $foundItems) { if (-not $AllowMissing) { Write-Error " Required pattern not found: '$SourcePattern' in '$SourceDir'"; throw "Missing: $SourcePattern" } else { Write-Host "  Optional pattern not found: '$SourcePattern' in '$SourceDir'" } }; return $foundItems };
