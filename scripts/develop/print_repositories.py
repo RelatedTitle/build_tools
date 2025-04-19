@@ -46,7 +46,8 @@ for repo in repositories:
   line = repo
   repo_dir = repositories[repo][1]
   if repo_dir != False:
-    repo_dir = os.path.relpath(repo_dir, os.path.join(base.get_script_dir(), "..", "..", ".."))
+    script_dir = os.path.join(base.get_script_dir(), "..", "..", "..")
+    repo_dir = os.path.relpath(repo_dir, script_dir)
     line += " " + repo_dir
   print(line)
 

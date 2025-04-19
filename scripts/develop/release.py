@@ -6,6 +6,7 @@ sys.path.append('../')
 import base
 import dependence
 import config
+import os
 
 def protect_brunch(branch, repo, strict = False):
   team = '' if strict else 'dep-application-development-leads'

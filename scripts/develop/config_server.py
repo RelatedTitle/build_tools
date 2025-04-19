@@ -6,10 +6,10 @@ import os
 import json
 
 def make():
-  git_dir = base.get_script_dir() + "/../.."
+  git_dir = os.path.join(base.get_script_dir(), "../..")
   old_cur = os.getcwd()
 
-  work_dir = git_dir + "/server/FileConverter/bin"
+  work_dir = os.path.join(git_dir, "server", "FileConverter", "bin")
   if not base.is_dir(work_dir):
     base.create_dir(work_dir)
 
@@ -48,20 +48,20 @@ def make():
 
   base.generate_doctrenderer_config("./DoctRenderer.config", "../../../sdkjs/deploy/", "server", "../../../web-apps/vendor/", "../../../dictionaries")
 
-  if not base.is_dir(git_dir + "/sdkjs-plugins"):
-    base.create_dir(git_dir + "/sdkjs-plugins")
+  if not base.is_dir(os.path.join(git_dir, "sdkjs-plugins")):
+    base.create_dir(os.path.join(git_dir, "sdkjs-plugins"))
 
-  if not base.is_dir(git_dir + "/sdkjs-plugins/v1"):
-    base.create_dir(git_dir + "/sdkjs-plugins/v1")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js", git_dir + "/sdkjs-plugins/v1/plugins.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js", git_dir + "/sdkjs-plugins/v1/plugins-ui.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css", git_dir + "/sdkjs-plugins/v1/plugins.css")
+  if not base.is_dir(os.path.join(git_dir, "sdkjs-plugins", "v1")):
+    base.create_dir(os.path.join(git_dir, "sdkjs-plugins", "v1"))
+    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js", os.path.join(git_dir, "sdkjs-plugins", "v1", "plugins.js"))
+    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js", os.path.join(git_dir, "sdkjs-plugins", "v1", "plugins-ui.js"))
+    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css", os.path.join(git_dir, "sdkjs-plugins", "v1", "plugins.css"))
 
-  base.support_old_versions_plugins(git_dir + "/sdkjs-plugins")
-  base.copy_marketplace_plugin(git_dir + "/sdkjs-plugins", False, False)
+  base.support_old_versions_plugins(os.path.join(git_dir, "sdkjs-plugins"))
+  base.copy_marketplace_plugin(os.path.join(git_dir, "sdkjs-plugins"), False, False)
 
-  if not base.is_dir(git_dir + "/fonts"):
-    base.create_dir(git_dir + "/fonts")
+  if not base.is_dir(os.path.join(git_dir, "fonts")):
+    base.create_dir(os.path.join(git_dir, "fonts"))
 
   if ("mac" == base.host_platform()):
     base.mac_correct_rpath_x2t("./")
@@ -69,19 +69,36 @@ def make():
   print("-----------------------------------------------------------")
   print("All fonts generation... -----------------------------------")
   print("-----------------------------------------------------------")
-  base.cmd_exe("./allfontsgen", ["--input=../../../core-fonts", "--allfonts-web=../../../sdkjs/common/AllFonts.js", "--allfonts=./AllFonts.js",
-                               "--images=../../../sdkjs/common/Images", "--selection=./font_selection.bin", 
-                               "--use-system=true", "--output-web=../../../fonts"])
+  allfontsgen_params = [
+    "--input=../../../core-fonts",
+    "--allfonts-web=../../../sdkjs/common/AllFonts.js",
+    "--allfonts=./AllFonts.js",
+    "--images=../../../sdkjs/common/Images",
+    "--selection=./font_selection.bin",
+    "--use-system=true",
+    "--output-web=../../../fonts"
+  ]
+  base.cmd_exe("./allfontsgen", allfontsgen_params)
   
   print("All presentation themes generation... ---------------------")
   print("-----------------------------------------------------------")
-  base.cmd_exe("./allthemesgen", ["--converter-dir=\"" + git_dir + "/server/FileConverter/bin\"", "--src=\"" + git_dir + "/sdkjs/slide/themes\"", "--output=\"" + git_dir + "/sdkjs/common/Images\""])
+  converter_dir = os.path.join(git_dir, "server", "FileConverter", "bin")
+  src_dir = os.path.join(git_dir, "sdkjs", "slide", "themes")
+  output_dir = os.path.join(git_dir, "sdkjs", "common", "Images")
+  allthemesgen_params = [
+    f'--converter-dir="{converter_dir}"',
+    f'--src="{src_dir}"',
+    f'--output="{output_dir}"'
+  ]
+  base.cmd_exe("./allthemesgen", allthemesgen_params)
   
   #print("- allthemesgen (ios) --------------------------------------")
-  #base.cmd_exe("./allthemesgen", ["--converter-dir=\"" + git_dir + "/server/FileConverter/bin\"", "--src=\"" + git_dir + "/sdkjs/slide/themes\"", "--output=\"" + git_dir + "/sdkjs/common/Images\"", "--postfix=ios", "--params=280,224"])
+  #ios_params = allthemesgen_params + ["--postfix=ios", "--params=280,224"]
+  #base.cmd_exe("./allthemesgen", ios_params)
   # android
   #print("- allthemesgen (android) ----------------------------------")
-  #base.cmd_exe("./allthemesgen", ["--converter-dir=\"" + git_dir + "/server/FileConverter/bin\"", "--src=\"" + git_dir + "/sdkjs/slide/themes\"", "--output=\"" + git_dir + "/sdkjs/common/Images\"", "--postfix=android", "--params=280,224"])
+  #android_params = allthemesgen_params + ["--postfix=android", "--params=280,224"]
+  #base.cmd_exe("./allthemesgen", android_params)
 
   # add directories to open directories
   addon_base_path = "../../"
@@ -93,25 +110,25 @@ def make():
   if (config.option("server-addons") != ""):
     server_addons = config.option("server-addons").rsplit(", ")
   #server-lockstorage is private
-  if ("server-lockstorage" in server_addons and base.is_dir(git_dir + "/server-lockstorage")):
+  if ("server-lockstorage" in server_addons and base.is_dir(os.path.join(git_dir, "server-lockstorage"))):
     server_config["editorDataStorage"] = "editorDataRedis"
   
   sdkjs_addons = []
   if (config.option("sdkjs-addons") != ""):
     sdkjs_addons = config.option("sdkjs-addons").rsplit(", ")
   for addon in sdkjs_addons:
-    static_content["/" + addon] = {"path": addon_base_path + addon}
+    static_content["/" + addon] = {"path": os.path.join(addon_base_path, addon)}
 
   web_apps_addons = []
   if (config.option("web-apps-addons") != ""):
     web_apps_addons = config.option("web-apps-addons").rsplit(", ")
   for addon in web_apps_addons:
-    static_content["/" + addon] = {"path": addon_base_path + addon}
+    static_content["/" + addon] = {"path": os.path.join(addon_base_path, addon)}
     
   if (config.option("external-folder") != ""):
     external_folder = config.option("external-folder")
-    static_content["/sdkjs"] = {"path": addon_base_path + external_folder + "/sdkjs"}
-    static_content["/web-apps"] = {"path": addon_base_path + external_folder + "/web-apps"}
+    static_content["/sdkjs"] = {"path": os.path.join(addon_base_path, external_folder, "sdkjs")}
+    static_content["/web-apps"] = {"path": os.path.join(addon_base_path, external_folder, "web-apps")}
     
   if (config.option("sql-type") != ""):
     sql["type"] = config.option("sql-type")
@@ -126,7 +143,7 @@ def make():
 
   server_config["static_content"] = static_content
   
-  json_file = git_dir + "/server/Common/config/local-development-" + base.host_platform() + ".json"
+  json_file = os.path.join(git_dir, "server", "Common", "config", f"local-development-{base.host_platform()}.json")
   base.writeFile(json_file, json.dumps({"services": {"CoAuthoring": {"server": server_config, "sql": sql}}}, indent=2))
 
   #site url
@@ -138,8 +155,8 @@ def make():
   example_config["siteUrl"] = "http://" + config.option("siteUrl") + ":8000/"
   example_config["apiUrl"] = "web-apps/apps/api/documents/api.js"
   example_config["preloaderUrl"] = "web-apps/apps/api/documents/cache-scripts.html"
-  json_dir = git_dir + "/document-server-integration/web/documentserver-example/nodejs/config/"
-  json_file = json_dir + "/local-development-" + base.host_platform() + ".json"
+  json_dir = os.path.join(git_dir, "document-server-integration", "web", "documentserver-example", "nodejs", "config")
+  json_file = os.path.join(json_dir, f"local-development-{base.host_platform()}.json")
   if base.is_exist(json_dir):
     base.writeFile(json_file, json.dumps({"server": example_config}, indent=2))
   

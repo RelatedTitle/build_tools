@@ -10,7 +10,7 @@ import openssl_mobile
 
 def clean():
   if base.is_dir("openssl"):
-    base.delete_dir_with_access_error("openssl")
+    base.delete_dir("openssl")
   if base.is_dir("build"):
     base.delete_dir("build")
   return
@@ -19,7 +19,7 @@ def make():
 
   print("[fetch & build]: openssl")
 
-  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/openssl")
+  base_dir = os.path.join(base.get_script_dir(), "..", "..", "core", "Common", "3dParty", "openssl")
   old_cur = os.getcwd()
   os.chdir(base_dir)
 
@@ -32,108 +32,116 @@ def make():
 
   if not base.is_dir("openssl"):
     base.cmd("git", ["clone", "--depth=1", "--branch", "OpenSSL_1_1_1f", "https://github.com/openssl/openssl.git"])
+    if ("mac" == base.host_platform()):
+      base.cmd_in_dir("openssl", "sed", ["-i", "", "s/\\(define CRYPTOGAMS\\)/\\1 1/g", "./crypto/modes/asm/aesni-gcm-x86_64.pl"])
+      base.cmd_in_dir("openssl", "sed", ["-i", "", "s/\\(define CRYPTOGAMS\\)/\\1 1/g", "./crypto/poly1305/asm/poly1305-x86_64.pl"])
+  
+  os_prefix = ""
+  if base.is_dir(os.path.join("openssl", ".git")):
+    base.delete_dir_with_access_error(os.path.join("openssl", ".git"))
 
-  os.chdir(os.path.join(base_dir, "openssl"))
+  os.chdir(os.path.join(old_cur, "openssl"))
 
-  old_cur_dir = base_dir.replace(" ", "\\ ")
-  if ("windows" == base.host_platform()):
-    old_cur_dir = base_dir.replace(" ", "\\ ")
-    win_64_dir = os.path.join("..", "build", "win_64")
-    if (-1 != config.option("platform").find("win_64")) and not base.is_dir(win_64_dir):
-      base.create_dir(win_64_dir)
-      qmake_bat = []
-      qmake_bat.append("call \"" + config.option("vs-path") + "/vcvarsall.bat\" x64")      
-      qmake_bat.append("perl Configure VC-WIN64A --prefix=" + old_cur_dir + "\\build\\win_64 --openssldir=" + old_cur_dir + "\\build\\win_64 no-shared no-asm enable-md2")
-      qmake_bat.append("call nmake clean")
-      qmake_bat.append("call nmake build_libs install")
-      base.run_as_bat(qmake_bat, True)
-    
-    win_32_dir = os.path.join("..", "build", "win_32")
-    if (-1 != config.option("platform").find("win_32")) and not base.is_dir(win_32_dir):
-      base.create_dir(win_32_dir)
-      qmake_bat = []
-      qmake_bat.append("call \"" + config.option("vs-path") + "/vcvarsall.bat\" x86")
-      qmake_bat.append("perl Configure VC-WIN32 --prefix=" + old_cur_dir + "\\build\\win_32 --openssldir=" + old_cur_dir + "\\build\\win_32 no-shared no-asm enable-md2")
-      qmake_bat.append("call nmake clean")
-      qmake_bat.append("call nmake build_libs install")
-      base.run_as_bat(qmake_bat, True)
-    os.chdir(old_cur)
-    # xp ----------------------------------------------------------------------------------------------------
-    os.chdir(os.path.join(base_dir, "openssl"))
-    base.replaceInFile(os.path.join(base_dir, "openssl/crypto/rand/rand_win.c"), "define USE_BCRYPTGENRANDOM", "define USE_BCRYPTGENRANDOM_FIX")
-    old_cur_dir = base_dir.replace(" ", "\\ ")
-    
-    win_64_xp_dir = os.path.join("..", "build", "win_64_xp")
-    if (-1 != config.option("platform").find("win_64_xp")) and not base.is_dir(win_64_xp_dir):
-      base.create_dir(win_64_xp_dir)
-      qmake_bat = []
-      qmake_bat.append("call \"" + config.option("vs-path") + "/vcvarsall.bat\" x64")      
-      qmake_bat.append("perl Configure VC-WIN64A --prefix=" + old_cur_dir + "\\build\\win_64_xp --openssldir=" + old_cur_dir + "\\build\\win_64_xp no-shared no-asm no-async enable-md2")
-      qmake_bat.append("call nmake clean")
-      qmake_bat.append("call nmake build_libs install")
-      base.run_as_bat(qmake_bat, True)
-    
-    win_32_xp_dir = os.path.join("..", "build", "win_32_xp")
-    if (-1 != config.option("platform").find("win_32_xp")) and not base.is_dir(win_32_xp_dir):
-      base.create_dir(win_32_xp_dir)
-      qmake_bat = []
-      qmake_bat.append("call \"" + config.option("vs-path") + "/vcvarsall.bat\" x86")
-      qmake_bat.append("perl Configure VC-WIN32 --prefix=" + old_cur_dir + "\\build\\win_32_xp --openssldir=" + old_cur_dir + "\\build\\win_32_xp no-shared no-asm no-async enable-md2")
-      qmake_bat.append("call nmake clean")
-      qmake_bat.append("call nmake build_libs install")
-      base.run_as_bat(qmake_bat, True)
-    os.chdir(old_cur)
-    # -------------------------------------------------------------------------------------------------------
+  if ("win_32" == base.host_platform_()):
+    if (-1 != config.option("platform").find("win_32")):
+      prefix_path = os.path.join("..", "build", "win_32", "openssl")
+      base.cmd("perl", ["Configure", "VC-WIN32", "no-shared", "no-asm", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+      base.cmd("nmake", ["clean"])
+      base.cmd("nmake", ["build_libs"])
+      base.cmd("nmake", ["install_dev"])
+      # make error to not build twice (note: true result: no errors)
+      return
+
+  if ("win_64" == base.host_platform_()):
+    if (-1 != config.option("platform").find("win_64")):
+      prefix_path = os.path.join("..", "build", "win_64", "openssl")
+      base.cmd("perl", ["Configure", "VC-WIN64A", "no-shared", "no-asm", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+      base.cmd("nmake", ["clean"])
+      base.cmd("nmake", ["build_libs"])
+      base.cmd("nmake", ["install_dev"])
+      # make error to not build twice (note: true result: no errors)
+      return
+
+  if ("linux_64" == base.host_platform_()) and (-1 != config.option("platform").find("linux_64")):
+    prefix_path = os.path.join("..", "build", "linux_64", "openssl")
+    base.cmd("./config", ["no-shared", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+    base.cmd("make", ["clean"])
+    base.cmd("make", ["build_libs"])
+    base.cmd("make", ["install_dev"])
+    # make error to not build twice (note: true result: no errors)
     return
 
-  linux_64_dir = os.path.join("..", "build", "linux_64")
-  if (-1 != config.option("platform").find("linux")) and not base.is_dir(linux_64_dir):
-    base.cmd("./config", ["enable-md2", "no-shared", "no-asm", "--prefix=" + old_cur_dir + "/build/linux_64", "--openssldir=" + old_cur_dir + "/build/linux_64"])
-    base.replaceInFile("./Makefile", "CFLAGS=-Wall -O3", "CFLAGS=-Wall -O3 -fvisibility=hidden")
-    base.replaceInFile("./Makefile", "CXXFLAGS=-Wall -O3", "CXXFLAGS=-Wall -O3 -fvisibility=hidden")
-    base.cmd("make")
-    base.cmd("make", ["install"])
-    base.cmd("make", ["clean"], True)
-    # TODO: support x86
+  if ("linux" == base.host_platform()) and (-1 != config.option("platform").find("linux_arm64")):
+    prefix_path = os.path.join("..", "build", "linux_arm64", "openssl")
+    base.cmd("./Configure", ["linux-aarch64", "no-shared", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+    base.cmd("make", ["clean"])
+    base.cmd("make", ["build_libs"])
+    base.cmd("make", ["install_dev"])
+    # make error to not build twice (note: true result: no errors)
+    return
 
-  linux_arm64_dir = os.path.join("..", "build", "linux_arm64")
-  if (-1 != config.option("platform").find("linux_arm64")) and not base.is_dir(linux_arm64_dir):
-    if ("x86_64" != platform.machine()):
-      base.copy_dir(linux_64_dir, linux_arm64_dir)
+  if (-1 != config.option("platform").find("linux_32")):
+    prefix_path = os.path.join("..", "build", "linux_32", "openssl")
+    base.cmd("./config", ["no-shared", "-m32", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+    base.cmd("make", ["clean"])
+    base.cmd("make", ["build_libs"])
+    base.cmd("make", ["install_dev"])
+    # make error to not build twice (note: true result: no errors)
+    return
+  
+  if ("mac" == base.host_platform()):
+    if (-1 != config.option("platform").find("mac")):
+      prefix_path = os.path.join("..", "build", "mac_64", "openssl")
+      base.cmd("./Configure", ["no-shared", "darwin64-x86_64-cc", f"--prefix={prefix_path}", f"--openssldir={prefix_path}", "-mmacosx-version-min=10.11"])
+      base.cmd("make", ["clean"])
+      base.cmd("make", ["build_libs"])
+      base.cmd("make", ["install_dev"])
+      return
+
+  if (-1 != config.option("platform").find("ios")):
+    if not config.check_option("platform", "ios_simulator"):
+      prefix_path = os.path.join("..", "build", "ios", "openssl")
+      base.cmd("./Configure", ["no-shared", "iphoneos-cross", "no-asm", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
     else:
-      cross_compiler_arm64 = config.option("arm64-toolchain-bin")
-      if ("" == cross_compiler_arm64):
-        cross_compiler_arm64 = "/usr/bin"
-      cross_compiler_arm64_prefix = os.path.join(cross_compiler_arm64, base.get_prefix_cross_compiler_arm64())
-      base.cmd("./Configure", ["linux-aarch64", "--cross-compile-prefix=" + cross_compiler_arm64_prefix, "enable-md2", "no-shared", "no-asm", "no-tests", "--prefix=" + old_cur_dir + "/build/linux_arm64", "--openssldir=" + old_cur_dir + "/build/linux_arm64"])
-      base.replaceInFile("./Makefile", "CFLAGS=-Wall -O3", "CFLAGS=-Wall -O3 -fvisibility=hidden")
-      base.replaceInFile("./Makefile", "CXXFLAGS=-Wall -O3", "CXXFLAGS=-Wall -O3 -fvisibility=hidden")
-      base.cmd("make", [], True)
-      base.cmd("make", ["install"], True)
+      prefix_path = os.path.join("..", "build", "ios_simulator", "openssl")
+      base.cmd("./Configure", ["no-shared", "iphonesimulator-x86_64", "no-asm", f"--prefix={prefix_path}", f"--openssldir={prefix_path}"])
+    
+    old_env = os.environ.copy()
+    
+    os.environ["CROSS_TOP"] = base.get_env("CROSS_TOP")
+    os.environ["CROSS_SDK"] = base.get_env("CROSS_SDK")
+    
+    if (base.get_env("CCACHE") != ""):
+      os.environ["CC"] = "{0} clang -fembed-bitcode".format(base.get_env("CCACHE"))
+    else:
+      os.environ["CC"] = "clang -fembed-bitcode"
+    base.cmd_and_return_cwd(base.cmd, ["make", "clean"])
+    base.cmd_and_return_cwd(base.cmd, ["make", "build_libs"])
+    base.cmd_and_return_cwd(base.cmd, ["make", "install_dev"])
+    
+    os.environ.clear()
+    os.environ.update(old_env)
+  
+  if ("android" == config.option("platform")):
+    if not base.is_dir(os.path.join(old_cur, "android_openssl")):
+      android_openssl_dir = os.path.join(old_cur, "android_openssl")
+      base.create_dir(android_openssl_dir)
+      os.chdir(android_openssl_dir)
+      base.cmd("git", ["clone", "--depth=1", "--branch", "master", "https://github.com/ONLYOFFICE/android_openssl.git", "."])
+      os.chdir(os.path.join(old_cur, "openssl"))
 
-  mac_64_dir = os.path.join("..", "build", "mac_64")
-  if (-1 != config.option("platform").find("mac")) and not base.is_dir(mac_64_dir):
-    base.cmd("./Configure", ["enable-md2", "no-shared", "no-asm", "darwin64-x86_64-cc", "--prefix=" + old_cur_dir + "/build/mac_64", "--openssldir=" + old_cur_dir + "/build/mac_64", "-mmacosx-version-min=10.11"])
-    base.cmd("make", ["build_libs", "install"])
-
-  mac_arm64_dir = os.path.join("..", "build", "mac_arm64")
-  if (-1 != config.option("platform").find("mac")) and not base.is_dir(mac_arm64_dir):
-    os.chdir(base_dir)
-    base.cmd("git", ["clone", "--depth=1", "--branch", "OpenSSL_1_1_1f", "https://github.com/openssl/openssl.git", "openssl2"])
-    os.chdir(os.path.join(base_dir, "openssl2"))
-    replace1 = "\"darwin64-x86_64-cc\" => {"
-    replace2 = "\"darwin64-arm64-cc\" => {\n\
-        inherit_from     => [ \"darwin-common\", asm(\"aarch64_asm\") ],\n\
-        CFLAGS           => add(\"-Wall\"),\n\
-        cflags           => add(\"-arch arm64 -isysroot " + base.find_mac_sdk() + "\"),\n\
-        lib_cppflags     => add(\"-DL_ENDIAN\"),\n\
-        bn_ops           => \"SIXTY_FOUR_BIT_LONG\",\n\
-        perlasm_scheme   => \"macosx\",\n\
-    },\n\
-    \"darwin64-x86_64-cc\" => {"
-    base.replaceInFile(os.path.join(base_dir, "openssl2/Configurations/10-main.conf"), replace1, replace2)
-    base.cmd("./Configure", ["enable-md2", "no-shared", "no-asm", "darwin64-arm64-cc", "--prefix=" + old_cur_dir + "/build/mac_arm64", "--openssldir=" + old_cur_dir + "/build/mac_arm64"])
-    base.cmd("make", ["build_libs", "install"])
-
+    os.environ["ANDROID_NDK_HOME"] = os.environ["ANDROID_NDK_ROOT"]
+    target_dir = os.path.join(old_cur, "build", "android")
+    
+    # Build for each architecture
+    for arch in ["arm64", "arm", "x86", "x86_64"]:
+      build_script = os.path.join(old_cur, "android_openssl", "build.py")
+      base.cmd(build_script, [
+        f"--openssl=./", 
+        f"--ndk-root={os.environ['ANDROID_NDK_ROOT']}", 
+        f"--target-dir={target_dir}", 
+        f"--arch={arch}"
+      ])
+  
   os.chdir(old_cur)
   return

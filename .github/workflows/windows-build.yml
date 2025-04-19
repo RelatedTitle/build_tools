@@ -26,12 +26,12 @@ jobs:
 
       # --- Checkout Paths (Relative to Workspace Root) ---
       # build_tools repo is checked out to workspace root itself.
-      CORE_DIR_REL: core # Core repo checkout dir relative path
-      SDKJS_DIR_REL: sdkjs # SDKjs repo checkout dir relative path
+      CORE_DIR_REL: ../core # Core repo checkout dir relative path - updated to be one level up
+      SDKJS_DIR_REL: ../sdkjs # SDKjs repo checkout dir relative path - updated to be one level up
       ARTIFACT_SDK_DIR_REL: artifact_sdk # Dir for final artifacts relative path
 
       # --- Key Subdirectory Paths (Relative to Workspace Root) ---
-      CORE_3RDPARTY_DIR_REL: core/Common/3dParty # Relative path for caching 3rd party deps
+      CORE_3RDPARTY_DIR_REL: ../core/Common/3dParty # Updated to reflect the new core location
       QT_INSTALL_BASE_DIR_REL: Qt_Install # Base dir for Qt installation relative path
 
       # --- Absolute Paths ---
@@ -65,14 +65,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/core
-          path: ${{ env.CORE_DIR_REL }} # Checkout to ./core
+          path: ${{ github.workspace }}/../core # Checkout to ../core (sibling to build_tools)
           fetch-depth: 1
 
       - name: Checkout SDKjs Repo
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/sdkjs
-          path: ${{ env.SDKJS_DIR_REL }} # Checkout to ./sdkjs
+          path: ${{ github.workspace }}/../sdkjs # Checkout to ../sdkjs (sibling to build_tools)
           fetch-depth: 1
 
       - name: Display Initial Workspace Structure
@@ -267,7 +267,7 @@ jobs:
           $IncludeDir = Join-Path $ArtifactDir "include"; $LibDir = Join-Path $ArtifactDir "lib"
           New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null; New-Item -ItemType Directory -Path $IncludeDir -Force | Out-Null; New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
           $BuildToolsAbsDir = "${{ github.workspace }}"
-          $CoreAbsDir = Join-Path $BuildToolsAbsDir "${{ env.CORE_DIR_REL }}"
+          $CoreAbsDir = Join-Path "${{ github.workspace }}" "${{ env.CORE_DIR_REL }}" # Updated to use the env variable
           $BrandSegment = $Env:ONLYOFFICE_BRANDING_NAME; if ($BrandSegment) { $BrandPath = "$BrandSegment\" } else { $BrandPath = "onlyoffice\" }; $BuildConfig = "Release"; $PlatformPath = $Env:OO_PLATFORM
           $SourceLibDirCandidates = @( Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" "$($PlatformPath)_$BuildConfig", Join-Path $BuildToolsAbsDir "out" $PlatformPath $BrandPath "core" "build" "lib" $PlatformPath, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" $BuildConfig, Join-Path $BuildToolsAbsDir "out" $PlatformPath "lib" ); $SourceLibDir = $null
           Write-Host "Searching for source library dir..."; foreach ($candidate in $SourceLibDirCandidates) { Write-Host "Checking: $candidate"; if (Test-Path $candidate -PathType Container) { Write-Host "Found: $candidate"; $SourceLibDir = $candidate; break } }; if (-not $SourceLibDir) { throw "Source lib dir not found! Checked: $($SourceLibDirCandidates -join ', ')" }

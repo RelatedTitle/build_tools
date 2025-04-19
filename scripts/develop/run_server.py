@@ -44,22 +44,20 @@ def start_linux_services():
   os.system('sudo service rabbitmq-server restart')
   
 def run_integration_example():
-  if base.is_exist(base_dir + '/../../../document-server-integration/web/documentserver-example/nodejs'):
-    base.cmd_in_dir(base_dir + '/../../../document-server-integration/web/documentserver-example/nodejs', 'python', ['run-develop.py'])
-
-def start_linux_services():
-  base.print_info('Restart MySQL Server')
-
+  example_dir = os.path.join(base_dir, '../../../document-server-integration/web/documentserver-example/nodejs')
+  if base.is_exist(example_dir):
+    base.cmd_in_dir(example_dir, 'python', ['run-develop.py'])
 
 def update_config(args):
   platform = base.host_platform()
   branch = base.run_command('git rev-parse --abbrev-ref HEAD')['stdout']
+  config_dir = os.path.join(base_dir, '../../')
 
   if ("linux" == platform):
-  	base.cmd_in_dir(base_dir + '/../../', 'python', ['configure.py', '--branch', branch or 'develop', '--develop', '1', '--module', 'server', '--update', '1', '--update-light', '1', '--clean', '0'] + args)
+    base.cmd_in_dir(config_dir, 'python', ['configure.py', '--branch', branch or 'develop', '--develop', '1', '--module', 'server', '--update', '1', '--update-light', '1', '--clean', '0'] + args)
   else:
-  	base.cmd_in_dir(base_dir + '/../../', 'python', ['configure.py', '--branch', branch or 'develop', '--develop', '1', '--module', 'server', '--update', '1', '--update-light', '1', '--clean', '0', '--sql-type', 'mysql', '--db-port', '3306', '--db-name', 'onlyoffice', '--db-user', 'root', '--db-pass', 'onlyoffice'] + args)
-  	
+    base.cmd_in_dir(config_dir, 'python', ['configure.py', '--branch', branch or 'develop', '--develop', '1', '--module', 'server', '--update', '1', '--update-light', '1', '--clean', '0', '--sql-type', 'mysql', '--db-port', '3306', '--db-name', 'onlyoffice', '--db-user', 'root', '--db-pass', 'onlyoffice'] + args)
+    
 
 def make_start():
   base.configure_common_apps()
@@ -77,16 +75,18 @@ def make_start():
 def make_configure(args):
   base.print_info('Build modules')
   update_config(args)
-  base.cmd_in_dir(base_dir + '/../../', 'python', ['make.py'])
+  base.cmd_in_dir(os.path.join(base_dir, '../../'), 'python', ['make.py'])
+
 def make_install():
   platform = base.host_platform()
   run_integration_example()
   
-  base.create_dir(base_dir + '/../../../server/App_Data')
+  server_dir = os.path.join(base_dir, '../../../server')
+  base.create_dir(os.path.join(server_dir, 'App_Data'))
   
-  install_module(base_dir + '/../../../server/DocService')
-  install_module(base_dir + '/../../../server/Common')
-  install_module(base_dir + '/../../../server/FileConverter')
+  install_module(os.path.join(server_dir, 'DocService'))
+  install_module(os.path.join(server_dir, 'Common'))
+  install_module(os.path.join(server_dir, 'FileConverter'))
 
 def make_run():
   platform = base.host_platform()
@@ -98,10 +98,11 @@ def make_run():
   elif ("linux" == platform):
     base.set_env('LD_LIBRARY_PATH', '../FileConverter/bin/')
   
-  run_module(base_dir + '/../../../server/DocService', ['sources/server.js'])
-  #run_module(base_dir + '/../../../server/DocService', ['sources/gc.js'])
-  run_module(base_dir + '/../../../server/FileConverter', ['sources/convertermaster.js'])
-  #run_module(base_dir + '/../../../server/SpellChecker', ['sources/server.js'])
+  server_dir = os.path.join(base_dir, '../../../server')
+  run_module(os.path.join(server_dir, 'DocService'), ['sources/server.js'])
+  #run_module(os.path.join(server_dir, 'DocService'), ['sources/gc.js'])
+  run_module(os.path.join(server_dir, 'FileConverter'), ['sources/convertermaster.js'])
+  #run_module(os.path.join(server_dir, 'SpellChecker'), ['sources/server.js'])
 
 def run_docker_server(args = []):
   try:
@@ -116,7 +117,7 @@ def run_docker_server(args = []):
     pass
   except:
     input("Unexpected error. " + traceback.format_exc() + "Press Enter to continue...")
-	
+    
 def run_docker_sdk_web_apps(dir):
   try:
     develop.build_docker_sdk_web_apps(dir)

@@ -23,10 +23,10 @@ def move_debug_libs_windows(dir):
 
 def clean():
   if base.is_dir("boost_1_58_0"):
-    base.delete_dir_with_access_error("boost_1_58_0");
+    base.delete_dir_with_access_error("boost_1_58_0")
     base.delete_dir("boost_1_58_0")
   if base.is_dir("boost_1_72_0"):
-    base.delete_dir_with_access_error("boost_1_72_0");
+    base.delete_dir_with_access_error("boost_1_72_0")
     base.delete_dir("boost_1_72_0")
   if base.is_dir("build"):
     base.delete_dir("build")
@@ -43,14 +43,18 @@ def correct_install_includes_win(base_dir, platform):
   return
 
 def clang_correct():
-  base.replaceInFile("./tools/build/src/tools/darwin.jam", "flags darwin.compile.c++ OPTIONS $(condition) : -fcoalesce-templates ;", "#flags darwin.compile.c++ OPTIONS $(condition) : -fcoalesce-templates ;")
-  base.replaceInFile("./tools/build/src/tools/darwin.py", "toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])", "#toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])")
+  base.replaceInFile(os.path.join(".", "tools", "build", "src", "tools", "darwin.jam"), 
+                    "flags darwin.compile.c++ OPTIONS $(condition) : -fcoalesce-templates ;", 
+                    "#flags darwin.compile.c++ OPTIONS $(condition) : -fcoalesce-templates ;")
+  base.replaceInFile(os.path.join(".", "tools", "build", "src", "tools", "darwin.py"), 
+                    "toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])", 
+                    "#toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])")
   return
 
 def make():
   print("[fetch & build]: boost")
 
-  base_dir = os.path.join(base.get_script_dir(), "../../core/Common/3dParty/boost")
+  base_dir = os.path.join(base.get_script_dir(), "..", "..", "core", "Common", "3dParty", "boost")
   old_cur = os.getcwd()
   os.chdir(base_dir)
 
@@ -64,7 +68,7 @@ def make():
   base.common_check_version("boost", "5", clean)
 
   if not base.is_dir("boost_1_72_0"):
-    base.cmd("git", ["clone", "--recursive", "--depth=1", "https://github.com/boostorg/boost.git", "boost_1_72_0", "-b" "boost-1.72.0"])
+    base.cmd("git", ["clone", "--recursive", "--depth=1", "https://github.com/boostorg/boost.git", "boost_1_72_0", "-b", "boost-1.72.0"])
 
   os.chdir("boost_1_72_0")
 
@@ -79,19 +83,23 @@ def make():
       win_vs_version = "vc142"
 
     # add "define=_ITERATOR_DEBUG_LEVEL=0" to b2 args before install for disable _ITERATOR_DEBUG_LEVEL
-    win64_lib_path = os.path.join("../build/win_64/lib", "libboost_system-" + win_vs_version + "-mt-x64-1_72.lib")
+    win64_lib_name = f"libboost_system-{win_vs_version}-mt-x64-1_72.lib"
+    win64_lib_path = os.path.join("..", "build", "win_64", "lib", win64_lib_name)
+    
     if (-1 != config.option("platform").find("win_64")) and not base.is_file(win64_lib_path):
       base.cmd("bootstrap.bat", [win_boot_arg])
       base.cmd("b2.exe", ["headers"])
       base.cmd("b2.exe", ["--clean"])
-      base.cmd("b2.exe", ["--prefix=./../build/win_64", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", "--toolset=" + win_toolset, "address-model=64", "install"])
+      base.cmd("b2.exe", ["--prefix=./../build/win_64", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", f"--toolset={win_toolset}", "address-model=64", "install"])
     
-    win32_lib_path = os.path.join("../build/win_32/lib", "libboost_system-" + win_vs_version + "-mt-x32-1_72.lib")
+    win32_lib_name = f"libboost_system-{win_vs_version}-mt-x32-1_72.lib"
+    win32_lib_path = os.path.join("..", "build", "win_32", "lib", win32_lib_name)
+    
     if (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
       base.cmd("bootstrap.bat", [win_boot_arg])
       base.cmd("b2.exe", ["headers"])
       base.cmd("b2.exe", ["--clean"])
-      base.cmd("b2.exe", ["--prefix=./../build/win_32", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", "--toolset=" + win_toolset, "address-model=32", "install"])
+      base.cmd("b2.exe", ["--prefix=./../build/win_32", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", f"--toolset={win_toolset}", "address-model=32", "install"])
     
     correct_install_includes_win(base_dir, "win_64")
     correct_install_includes_win(base_dir, "win_32")    

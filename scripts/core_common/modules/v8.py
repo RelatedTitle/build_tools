@@ -56,12 +56,12 @@ def make():
     make_xp()
     return
 
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/v8"
+  base_dir = os.path.join(base.get_script_dir(), "..", "..", "core", "Common", "3dParty", "v8")
   if ("ios" == config.option("platform")):
     return
 
   if (-1 != config.option("platform").find("android")):
-    base.cmd_in_dir(base_dir + "/android", "python", ["./make.py"])
+    base.cmd_in_dir(os.path.join(base_dir, "android"), "python", ["./make.py"])
     if (-1 == config.option("platform").find("linux")) and (-1 == config.option("platform").find("mac")) and (-1 == config.option("platform").find("win")):
       return
 
@@ -84,7 +84,7 @@ def make():
 
   if ("windows" == base.host_platform()):
     base.set_env("DEPOT_TOOLS_WIN_TOOLCHAIN", "0")
-    base.set_env("GYP_MSVS_VERSION", "2015")
+    base.set_env("GYP_MSVS_VERSION", config.option("vs-version"))
 
   base.common_check_version("v8", "1", clean)
 
@@ -99,7 +99,7 @@ def make():
       if base.is_file("depot_tools/cipd.ps1"):
         base.replaceInFile("depot_tools/cipd.ps1", "windows-386", "windows-amd64")
 
-  os.environ["PATH"] = base_dir + "/depot_tools" + os.pathsep + os.environ["PATH"]
+  os.environ["PATH"] = os.path.join(base_dir, "depot_tools") + os.pathsep + os.environ["PATH"]
 
   if not base.is_dir("v8/out.gn"):
     base.cmd("gclient")
@@ -165,36 +165,49 @@ def make():
   # build
   os.chdir("v8")
 
-  base_args64 = "target_cpu=\\\"x64\\\" v8_target_cpu=\\\"x64\\\" v8_static_library=true is_component_build=false v8_use_snapshot=false"
-  base_args32 = "target_cpu=\\\"x86\\\" v8_target_cpu=\\\"x86\\\" v8_static_library=true is_component_build=false v8_use_snapshot=false"
+  gn_args = ["v8_static_library=true",
+             "is_component_build=false",
+             "v8_monolithic=true",
+             "v8_use_external_startup_data=false",
+             "use_custom_libcxx=false"]
 
   if config.check_option("platform", "linux_64"):
-    base.cmd2("gn", ["gen", "out.gn/linux_64", "--args=\"is_debug=false " + base_args64 + " is_clang=" + is_use_clang() + " use_sysroot=false treat_warnings_as_errors=false\""])
+    base.cmd("git", ["apply", "--ignore-space-change", "--ignore-whitespace", 
+                     os.path.join("..", "..", "..", "..", "..", "build_tools", "scripts", "core_common", "modules", "icu.git.diff")])
+    base.cmd("gn", ["gen", "out.gn/linux_64", 
+                   "--args=\"target_cpu=\\\"x64\\\" v8_target_cpu=\\\"x64\\\" is_debug=false " + " ".join(gn_args) + "\""])
     base.cmd("ninja", ["-C", "out.gn/linux_64"])
 
   if config.check_option("platform", "linux_32"):
-    base.cmd2("gn", ["gen", "out.gn/linux_32", "--args=\"is_debug=false " + base_args32 + " is_clang=" + is_use_clang() + " use_sysroot=false treat_warnings_as_errors=false\""])
+    base.cmd("gn", ["gen", "out.gn/linux_32", 
+                   "--args=\"target_cpu=\\\"x86\\\" v8_target_cpu=\\\"x86\\\" is_debug=false " + " ".join(gn_args) + "\""])
     base.cmd("ninja", ["-C", "out.gn/linux_32"])
 
   if config.check_option("platform", "mac_64"):
-    base.cmd2("gn", ["gen", "out.gn/mac_64", "--args=\"is_debug=false " + base_args64 + "\""])
+    base.cmd("git", ["apply", "--ignore-space-change", "--ignore-whitespace", 
+                     os.path.join("..", "..", "..", "..", "..", "build_tools", "scripts", "core_common", "modules", "icu.mac.diff")])
+    base.cmd("gn", ["gen", "out.gn/mac_64", 
+                   "--args=\"target_cpu=\\\"x64\\\" v8_target_cpu=\\\"x64\\\" is_debug=false " + " ".join(gn_args) + "\""])
     base.cmd("ninja", ["-C", "out.gn/mac_64"])
 
-  # add enable_iterator_debugging=false for disable _ITERATOR_DEBUG_LEVEL
   if config.check_option("platform", "win_64"):
-    if (-1 != config.option("config").lower().find("debug")):
-      base.cmd2("gn", ["gen", "out.gn/win_64/debug", "--args=\"is_debug=true " + base_args64 + " is_clang=false\""])
-      base.cmd("ninja", ["-C", "out.gn/win_64/debug"])      
-
-    base.cmd2("gn", ["gen", "out.gn/win_64/release", "--args=\"is_debug=false " + base_args64 + " is_clang=false\""])
+    if config.check_option("config", "debug"):
+      base.cmd("gn", ["gen", "out.gn/win_64/debug", 
+                   "--args=\"target_cpu=\\\"x64\\\" v8_target_cpu=\\\"x64\\\" is_debug=true " + " ".join(gn_args) + "\""])
+      base.cmd("ninja", ["-C", "out.gn/win_64/debug"])
+      
+    base.cmd("gn", ["gen", "out.gn/win_64/release", 
+                   "--args=\"target_cpu=\\\"x64\\\" v8_target_cpu=\\\"x64\\\" is_debug=false " + " ".join(gn_args) + "\""])
     base.cmd("ninja", ["-C", "out.gn/win_64/release"])
 
   if config.check_option("platform", "win_32"):
-    if (-1 != config.option("config").lower().find("debug")):
-      base.cmd2("gn", ["gen", "out.gn/win_32/debug", "--args=\"is_debug=true " + base_args32 + " is_clang=false\""])
-      base.cmd("ninja", ["-C", "out.gn/win_32/debug"])    
+    if config.check_option("config", "debug"):
+      base.cmd("gn", ["gen", "out.gn/win_32/debug", 
+                     "--args=\"target_cpu=\\\"x86\\\" v8_target_cpu=\\\"x86\\\" is_debug=true " + " ".join(gn_args) + "\""])
+      base.cmd("ninja", ["-C", "out.gn/win_32/debug"])
 
-    base.cmd2("gn", ["gen", "out.gn/win_32/release", "--args=\"is_debug=false " + base_args32 + " is_clang=false\""])
+    base.cmd("gn", ["gen", "out.gn/win_32/release", 
+                   "--args=\"target_cpu=\\\"x86\\\" v8_target_cpu=\\\"x86\\\" is_debug=false " + " ".join(gn_args) + "\""])
     base.cmd("ninja", ["-C", "out.gn/win_32/release"])
 
   os.chdir(old_cur)

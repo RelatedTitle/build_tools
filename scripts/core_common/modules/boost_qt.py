@@ -36,7 +36,11 @@ def make(src_dir, modules, build_platform="android", qmake_addon=""):
     pro_file_content.append("")
     pro_file_content.append("SOURCES += $$files($$PWD/src/*.cpp, true)")
     pro_file_content.append("")
-    pro_file_content.append("DESTDIR = $$BOOST_SOURCES/../build/" + build_platform + "/lib/$$CORE_BUILDS_PLATFORM_PREFIX")
+    
+    # Ensure forward slashes in paths for Qt .pro files, which is what Qt expects even on Windows
+    dest_path = "$$BOOST_SOURCES/../build/" + build_platform + "/lib/$$CORE_BUILDS_PLATFORM_PREFIX"
+    pro_file_content.append("DESTDIR = " + dest_path)
+    
     pro_file_path = os.path.join(module_dir, module + ".pro")
     base.save_as_script(pro_file_path, pro_file_content)
     os.chdir(module_dir)

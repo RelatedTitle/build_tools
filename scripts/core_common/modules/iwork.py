@@ -19,7 +19,7 @@ def make(use_gperf = True):
 
   print("[fetch & build]: iwork")
 
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/apple"
+  base_dir = os.path.join(base.get_script_dir(), "..", "..", "core", "Common", "3dParty", "apple")
   
   os.chdir(base_dir)
   base.check_module_version("3", clear_module)

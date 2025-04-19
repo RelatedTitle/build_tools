@@ -7,6 +7,7 @@ import build_server
 import config
 import dependence
 import config_server as develop_config_server
+import os
 
 base_dir = base.get_script_dir(__file__)
 
@@ -20,11 +21,11 @@ def build_docker_sdk_web_apps(dir):
 
 def build_develop_server():
   build_server.build_server_develop()
-  build_js.build_js_develop(base_dir + "/../../..")
+  build_js.build_js_develop(os.path.join(base_dir, "../../.."))
   develop_config_server.make()
   if ("" != config.option("branding")):
-    branding_develop_script_dir = base_dir + "/../../../" + config.option("branding") + "/build_tools/scripts"
-    if base.is_file(branding_develop_script_dir + "/develop.py"):
+    branding_develop_script_dir = os.path.join(base_dir, "../../../", config.option("branding"), "build_tools/scripts")
+    if base.is_file(os.path.join(branding_develop_script_dir, "develop.py")):
       base.cmd_in_dir(branding_develop_script_dir, "python", ["develop.py"], True)
 
 def make():

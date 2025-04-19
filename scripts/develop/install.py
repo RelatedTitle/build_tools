@@ -6,6 +6,7 @@ import base
 import shutil
 import optparse
 import dependence
+import os
 
 arguments = sys.argv[1:]
 
