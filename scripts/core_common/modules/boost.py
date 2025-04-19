@@ -74,10 +74,15 @@ def make():
 
   # build
   if ("windows" == base.host_platform()):
+    # Check for GitHub Actions environment variable for VS version
+    github_vs_version = os.environ.get('ONLYOFFICE_BUILDSYSTEM_VS_VERSION', '')
+    
     win_toolset = "msvc-14.0"
     win_boot_arg = "vc14"
     win_vs_version = "vc140"
-    if (config.option("vs-version") == "2019"):
+    
+    if github_vs_version == "2019" or (config.option("vs-version") == "2019"):
+      print("Using Visual Studio 2019 toolset for Boost")
       win_toolset = "msvc-14.2"
       win_boot_arg = "vc142"
       win_vs_version = "vc142"
@@ -87,7 +92,9 @@ def make():
     win64_lib_path = os.path.join("..", "build", "win_64", "lib", win64_lib_name)
     
     if (-1 != config.option("platform").find("win_64")) and not base.is_file(win64_lib_path):
+      print(f"Running bootstrap.bat with {win_boot_arg}")
       base.cmd("bootstrap.bat", [win_boot_arg])
+      print(f"Running b2.exe with toolset={win_toolset}")
       base.cmd("b2.exe", ["headers"])
       base.cmd("b2.exe", ["--clean"])
       base.cmd("b2.exe", ["--prefix=./../build/win_64", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", f"--toolset={win_toolset}", "address-model=64", "install"])
@@ -96,7 +103,9 @@ def make():
     win32_lib_path = os.path.join("..", "build", "win_32", "lib", win32_lib_name)
     
     if (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
+      print(f"Running bootstrap.bat with {win_boot_arg}")
       base.cmd("bootstrap.bat", [win_boot_arg])
+      print(f"Running b2.exe with toolset={win_toolset}")
       base.cmd("b2.exe", ["headers"])
       base.cmd("b2.exe", ["--clean"])
       base.cmd("b2.exe", ["--prefix=./../build/win_32", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", f"--toolset={win_toolset}", "address-model=32", "install"])

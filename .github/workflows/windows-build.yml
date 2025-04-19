@@ -135,37 +135,38 @@ jobs:
       - name: Set up MSBuild and VS Dev Env
         uses: microsoft/setup-msbuild@v2
         id: setup_msbuild
-        with:
-          vs-version: "[14.0,14.1)" # Visual Studio 2015
 
       - name: Setup VS Developer Environment
         shell: cmd
         run: |
           echo ::group::Setting up Visual Studio Developer Environment
-          :: Get Visual Studio installation path
-          for /f "usebackq tokens=*" %%i in (`vswhere -legacy -version "[14.0,15.0)" -property installationPath`) do (
+          :: Find latest Visual Studio
+          for /f "usebackq tokens=*" %%i in (`vswhere -latest -property installationPath`) do (
             set VS_PATH=%%i
           )
 
           if "%VS_PATH%"=="" (
-            echo ::error::VS 2015 not found!
+            echo ::error::Visual Studio not found!
             exit 1
           )
 
-          echo Found VS2015 at %VS_PATH%
+          echo Found Visual Studio at %VS_PATH%
 
           :: Create a script to initialize the VS environment for subsequent steps
           echo @echo off > "%GITHUB_WORKSPACE%\vsdevcmd.bat"
-          echo call "%VS_PATH%\VC\vcvarsall.bat" x64 >> "%GITHUB_WORKSPACE%\vsdevcmd.bat"
+          echo call "%VS_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 >> "%GITHUB_WORKSPACE%\vsdevcmd.bat"
           echo echo VS Developer Command Prompt environment initialized >> "%GITHUB_WORKSPACE%\vsdevcmd.bat"
 
           :: Test that cl.exe is available
-          call "%VS_PATH%\VC\vcvarsall.bat" x64
+          call "%VS_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64
           where cl.exe
           if %ERRORLEVEL% neq 0 (
             echo ::error::cl.exe not found in PATH after VS env setup
             exit 1
           )
+
+          :: Set environment variable to tell build scripts to use VS2019
+          echo ONLYOFFICE_BUILDSYSTEM_VS_VERSION=2019 >> %GITHUB_ENV%
 
           echo Visual Studio Developer Environment setup complete
           echo ::endgroup::
@@ -292,8 +293,8 @@ jobs:
           :: Initialize VS Developer environment first
           call "%GITHUB_WORKSPACE%\vsdevcmd.bat"
 
-          :: Then run configure.py
-          python configure.py --platform ${{ env.OO_PLATFORM }} --module ${{ env.OO_MODULES }} --update 0 --clean 1 --vs-version ${{ env.REQUIRED_VS_VERSION }} --multiprocess ${{ env.PARALLEL_JOBS }}
+          :: Then run configure.py with VS2019
+          python configure.py --platform ${{ env.OO_PLATFORM }} --module ${{ env.OO_MODULES }} --update 0 --clean 1 --vs-version 2019 --multiprocess ${{ env.PARALLEL_JOBS }}
 
           if %ERRORLEVEL% neq 0 (
             echo ::error::configure.py failed
