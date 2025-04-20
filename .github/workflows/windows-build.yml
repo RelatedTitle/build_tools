@@ -262,7 +262,7 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base ${{ env.QT_MIRROR_URL }} --attempts 3"
+          extra: "--base ${{ env.QT_MIRROR_URL }}"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }} # Install relative to workspace
         id: qt-installation
         continue-on-error: true
@@ -273,7 +273,7 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base https://qt-mirror.dannhauer.de/ --attempts 3"
+          extra: "--base https://qt-mirror.dannhauer.de/"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
         id: qt-installation-fallback1
         continue-on-error: true
@@ -284,7 +284,7 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base https://mirrors.ocf.berkeley.edu/qt/ --attempts 3"
+          extra: "--base https://mirrors.ocf.berkeley.edu/qt/"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
         id: qt-installation-fallback2
         continue-on-error: true
@@ -295,7 +295,7 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base https://ftp.fau.de/qtproject/ --attempts 3"
+          extra: "--base https://ftp.fau.de/qtproject/"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
         id: qt-installation-fallback3
         continue-on-error: true
@@ -306,7 +306,7 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base https://master.qt.io/ --attempts 5"
+          extra: "--base https://master.qt.io/"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
 
       - name: Verify Qt Installation and Add to PATH
