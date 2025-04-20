@@ -57,7 +57,11 @@ def clean_boost_build_artifacts():
   paths_to_clean = [
     "bin.v2",
     "stage",
-    os.path.join("boost", "bin.v2")
+    "stage_win32",
+    "stage_win64",
+    os.path.join("boost", "bin.v2"),
+    # Also clean project-config.jam which might have cached settings
+    "project-config.jam"
   ]
   
   for path in paths_to_clean:
@@ -70,6 +74,28 @@ def clean_boost_build_artifacts():
           os.remove(path)
       except Exception as e:
         print(f"Warning: Could not remove {path}: {e}")
+        
+  # On Windows, clear cached b2 configurations that might contain conflicting settings
+  if "windows" == base.host_platform():
+    user_config = os.path.expanduser("~/user-config.jam")
+    if os.path.exists(user_config):
+      print(f"Removing user config: {user_config}")
+      try:
+        os.remove(user_config)
+      except Exception as e:
+        print(f"Warning: Could not remove {user_config}: {e}")
+        
+  # Verify the stage directory is completely gone
+  if os.path.exists("stage"):
+    print("WARNING: Stage directory still exists after cleanup!")
+    try:
+      # Try harder with os commands
+      if "windows" == base.host_platform():
+        os.system("rmdir /S /Q stage")
+      else:
+        os.system("rm -rf stage")
+    except:
+      pass
 
 def make():
   print("[fetch & build]: boost")
@@ -128,11 +154,17 @@ def make():
         
         # Build with architecture-specific directories and limited libraries
         print("Building 64-bit Boost libraries")
+        # First create a completely distinct temporary directory for installation
+        temp_install_dir = os.path.join(os.getcwd(), "temp_install_win64")
+        os.makedirs(temp_install_dir, exist_ok=True)
+        
+        # Build args without "install" to avoid the stage/prefix conflict
         build_args = [
-          f"--prefix=./../build/win_64",
+          f"--prefix={temp_install_dir}",  # Install to a temporary directory
           "link=static", 
           f"--toolset={win_toolset}", 
           "address-model=64",
+          "architecture=x86",
           "--layout=versioned",
           "--with-filesystem", 
           "--with-system", 
@@ -141,11 +173,52 @@ def make():
           "--without-context",     # Exclude problematic libraries
           "--without-coroutine",
           "--without-python",
-          f"--stagedir=./stage_win64",  # Use architecture-specific stage directory
-          "install"
+          "--without-chrono",      # Explicitly exclude chrono which is causing the conflict
+          "--without-atomic",      # Atomic depends on chrono
+          "--without-thread",      # Thread depends on chrono
         ]
-        base.cmd("b2.exe", build_args)
         
+        # Build and install to temp directory
+        print("Building Boost libraries...")
+        base.cmd("b2.exe", build_args + ["install"])
+        
+        # Copy from temp location to final location
+        temp_lib_dir = os.path.join(temp_install_dir, "lib")
+        temp_include_dir = os.path.join(temp_install_dir, "include")
+        final_lib_dir = os.path.join(win64_build_dir, "lib")
+        final_include_dir = os.path.join(win64_build_dir, "include")
+        
+        # Create final directories
+        os.makedirs(final_lib_dir, exist_ok=True)
+        os.makedirs(final_include_dir, exist_ok=True)
+        
+        # Copy files
+        print(f"Copying libraries from {temp_lib_dir} to {final_lib_dir}")
+        if os.path.exists(temp_lib_dir):
+          for file in os.listdir(temp_lib_dir):
+            src_file = os.path.join(temp_lib_dir, file)
+            if os.path.isfile(src_file):
+              base.copy_file(src_file, os.path.join(final_lib_dir, file))
+              
+        print(f"Copying includes from {temp_include_dir} to {final_include_dir}")
+        if os.path.exists(temp_include_dir):
+          base.copy_dir(temp_include_dir, final_include_dir)
+              
+        # Remove temp dir after copying
+        print(f"Cleaning up temporary directory: {temp_install_dir}")
+        try:
+          shutil.rmtree(temp_install_dir, ignore_errors=True)
+        except Exception as e:
+          print(f"Warning: Could not remove temp directory: {e}")
+        
+        # Verify the libs are installed properly
+        if os.path.exists(final_lib_dir):
+          print(f"Verifying libraries were installed to: {final_lib_dir}")
+          libs = os.listdir(final_lib_dir)
+          print(f"Built libraries: {', '.join(libs)}")
+        else:
+          print(f"WARNING: Library directory {final_lib_dir} not found after build!")
+      
       except Exception as e:
         print(f"ERROR during Boost win_64 build: {str(e)}")
         # Continue execution even if there's an error
@@ -178,11 +251,17 @@ def make():
         
         # Build with architecture-specific directories and limited libraries
         print("Building 32-bit Boost libraries")
+        # First create a completely distinct temporary directory for installation
+        temp_install_dir = os.path.join(os.getcwd(), "temp_install_win32")
+        os.makedirs(temp_install_dir, exist_ok=True)
+        
+        # Build args without "install" to avoid the stage/prefix conflict
         build_args = [
-          f"--prefix=./../build/win_32",
+          f"--prefix={temp_install_dir}",  # Install to a temporary directory
           "link=static", 
           f"--toolset={win_toolset}", 
           "address-model=32",
+          "architecture=x86",
           "--layout=versioned",
           "--with-filesystem", 
           "--with-system", 
@@ -191,11 +270,52 @@ def make():
           "--without-context",     # Exclude problematic libraries
           "--without-coroutine",
           "--without-python",
-          f"--stagedir=./stage_win32",  # Use architecture-specific stage directory
-          "install"
+          "--without-chrono",      # Explicitly exclude chrono which is causing the conflict
+          "--without-atomic",      # Atomic depends on chrono
+          "--without-thread",      # Thread depends on chrono
         ]
-        base.cmd("b2.exe", build_args)
         
+        # Build and install to temp directory
+        print("Building Boost libraries...")
+        base.cmd("b2.exe", build_args + ["install"])
+        
+        # Copy from temp location to final location
+        temp_lib_dir = os.path.join(temp_install_dir, "lib")
+        temp_include_dir = os.path.join(temp_install_dir, "include")
+        final_lib_dir = os.path.join(win32_build_dir, "lib")
+        final_include_dir = os.path.join(win32_build_dir, "include")
+        
+        # Create final directories
+        os.makedirs(final_lib_dir, exist_ok=True)
+        os.makedirs(final_include_dir, exist_ok=True)
+        
+        # Copy files
+        print(f"Copying libraries from {temp_lib_dir} to {final_lib_dir}")
+        if os.path.exists(temp_lib_dir):
+          for file in os.listdir(temp_lib_dir):
+            src_file = os.path.join(temp_lib_dir, file)
+            if os.path.isfile(src_file):
+              base.copy_file(src_file, os.path.join(final_lib_dir, file))
+              
+        print(f"Copying includes from {temp_include_dir} to {final_include_dir}")
+        if os.path.exists(temp_include_dir):
+          base.copy_dir(temp_include_dir, final_include_dir)
+              
+        # Remove temp dir after copying
+        print(f"Cleaning up temporary directory: {temp_install_dir}")
+        try:
+          shutil.rmtree(temp_install_dir, ignore_errors=True)
+        except Exception as e:
+          print(f"Warning: Could not remove temp directory: {e}")
+        
+        # Verify the libs are installed properly
+        if os.path.exists(final_lib_dir):
+          print(f"Verifying libraries were installed to: {final_lib_dir}")
+          libs = os.listdir(final_lib_dir)
+          print(f"Built libraries: {', '.join(libs)}")
+        else:
+          print(f"WARNING: Library directory {final_lib_dir} not found after build!")
+      
       except Exception as e:
         print(f"ERROR during Boost win_32 build: {str(e)}")
         # Continue execution even if there's an error
