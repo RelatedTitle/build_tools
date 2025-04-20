@@ -40,7 +40,7 @@ jobs:
       QT_CACHE_KEY_PREFIX: "qt-cache-linux-v4"
       THIRD_PARTY_CACHE_KEY_PREFIX: "3rdparty-deps-linux-v4"
       NPM_CACHE_KEY_PREFIX: "npm-cache-linux-v3"
-      LINUX_DEPS_CACHE_KEY_PREFIX: "linux-apt-v2"
+      LINUX_DEPS_CACHE_KEY_PREFIX: "linux-apt-v2" # Cache key prefix for apt packages
 
       # --- Other ---
       QT_MIRROR_URL: "https://mirrors.dotsrc.org/qtproject/"
@@ -131,6 +131,7 @@ jobs:
           sudo apt-get update -qq
           # Install packages listed in deps.py and potentially missing ones
           # Grouped for slightly better readability
+          # REMOVED libncurses5 from this list as it caused 'Unable to locate package'
           sudo apt-get install -y --no-install-recommends \
             apt-transport-https \
             autoconf \
@@ -177,9 +178,9 @@ jobs:
             libxkbcommon-dev \
             libxkbcommon-x11-dev
 
-          # Install grunt-cli globally
-          echo "Installing grunt-cli globally..."
-          sudo npm install -g grunt-cli --no-progress
+          # Install grunt-cli globally using --force to overwrite existing files
+          echo "Installing grunt-cli globally (using --force)..."
+          sudo npm install -g grunt-cli --no-progress --force
 
           # Install pkg globally
           echo "Installing pkg globally..."
@@ -207,6 +208,8 @@ jobs:
           echo "7z: $(7z || echo '7z not found')"
           dpkg -s libicu-dev > /dev/null || echo "::warning::libicu-dev not installed"
           dpkg -s libxkbcommon-dev > /dev/null || echo "::warning::libxkbcommon-dev not installed"
+          dpkg -s libncurses6 > /dev/null || echo "::error::libncurses6 not installed"
+          dpkg -s libncurses5-dev > /dev/null || echo "::error::libncurses5-dev not installed"
           # Add more checks as needed
           echo "::endgroup::"
 
@@ -464,10 +467,10 @@ jobs:
           echo "::group::Final Debug Dump"
           echo "Job Status: ${{ job.status }}"
           echo "--- Cache Hits ---"
+          echo "Linux Deps Marker Cache Hit: ${{ steps.cache-linux-deps.outputs.cache-hit }}"
           echo "Qt Cache Hit: ${{ steps.cache-qt-install-action.outputs.cache-hit }}"
           echo "3rd Party Cache Hit: ${{ steps.cache-3rdparty.outputs.cache-hit }}"
           echo "NPM Cache Hit: ${{ steps.cache-npm.outputs.cache-hit }}"
-          echo "Linux Deps Marker Cache Hit: ${{ steps.cache-linux-deps.outputs.cache-hit }}"
           echo "--- Environment Variables (selected) ---"
           printenv | grep -E '^(GITHUB_|RUNNER_|CI|QTDIR|JAVA_HOME|DEPOT_TOOLS_DIR|OO_|STEP_|AWS_)' | sort
           echo "--- System PATH ---"
