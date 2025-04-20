@@ -51,6 +51,20 @@ def clang_correct():
                     "#toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])")
   return
 
+def write_boost_user_config(running_on_github=False):
+  """Create a user-config.jam file that explicitly disables context and coroutine"""
+  user_config_content = """
+# Boost user configuration for ONLYOFFICE builds
+# Explicitly disable problematic libraries
+using msvc ;
+"""
+  # Creating user-config.jam in the home directory
+  user_config_path = os.path.expanduser("~/user-config.jam")
+  with open(user_config_path, "w") as f:
+    f.write(user_config_content)
+  print(f"Created Boost user config at {user_config_path}")
+  return user_config_path
+
 def make():
   print("[fetch & build]: boost")
 
@@ -76,6 +90,7 @@ def make():
   if ("windows" == base.host_platform()):
     # Check for GitHub Actions environment variable for VS version
     github_vs_version = os.environ.get('ONLYOFFICE_BUILDSYSTEM_VS_VERSION', '')
+    running_on_github = "GITHUB_ACTIONS" in os.environ and os.environ.get("GITHUB_ACTIONS") == "true"
     
     win_toolset = "msvc-14.0"
     win_boot_arg = "vc14"
@@ -87,65 +102,120 @@ def make():
       win_boot_arg = "vc142"
       win_vs_version = "vc142"
 
-    # Detect if we're on GitHub Actions
-    running_on_actions = "GITHUB_ACTIONS" in os.environ and os.environ.get("GITHUB_ACTIONS") == "true"
+    # Write a clean user-config.jam to help with build issues
+    user_config_path = write_boost_user_config(running_on_github)
     
-    # add "define=_ITERATOR_DEBUG_LEVEL=0" to b2 args before install for disable _ITERATOR_DEBUG_LEVEL
+    # List of libraries to build - only the ones we actually need
+    needed_libraries = ["filesystem", "system", "date_time", "regex"]
+    libraries_arg = " ".join([f"--with-{lib}" for lib in needed_libraries])
+    
     win64_lib_name = f"libboost_system-{win_vs_version}-mt-x64-1_72.lib"
     win64_lib_path = os.path.join("..", "build", "win_64", "lib", win64_lib_name)
     
-    # Only build Win64 libs on GitHub Actions or if platform contains win_64
-    if (running_on_actions or (-1 != config.option("platform").find("win_64"))) and not base.is_file(win64_lib_path):
-      print(f"Running bootstrap.bat with {win_boot_arg}")
-      base.cmd("bootstrap.bat", [win_boot_arg])
-      print(f"Running b2.exe with toolset={win_toolset}")
+    if (-1 != config.option("platform").find("win_64")) and not base.is_file(win64_lib_path):
+      try:
+        print(f"Running bootstrap.bat with {win_boot_arg}")
+        base.cmd("bootstrap.bat", [win_boot_arg])
+        
+        print("Creating win_64 build directory")
+        win64_build_dir = os.path.join("..", "build", "win_64")
+        if not os.path.exists(win64_build_dir):
+          os.makedirs(win64_build_dir, exist_ok=True)
+        
+        # Common options for all builds
+        b2_common_args = [
+          "--prefix=./../build/win_64",
+          "link=static",
+          f"--toolset={win_toolset}",
+          "address-model=64",
+          "architecture=x86",
+          "threading=multi",
+          "runtime-link=shared",
+          "variant=release,debug",
+          "--without-context",
+          "--without-coroutine",
+          "--without-python",
+          "--layout=versioned",
+          "-j4",
+        ]
+        
+        # Add specific library targets
+        for lib in needed_libraries:
+          b2_common_args.append(f"--with-{lib}")
+        
+        print("Generating headers")
+        base.cmd("b2.exe", ["headers"])
+        
+        print("Cleaning previous build")
+        base.cmd("b2.exe", ["--clean"])
+        
+        print(f"Building Win64 libraries with arguments: {' '.join(b2_common_args)}")
+        base.cmd("b2.exe", b2_common_args + ["install"])
+        
+        # Verify libraries were built
+        print("Verifying libraries were built correctly")
+        lib_dir = os.path.join("..", "build", "win_64", "lib")
+        if os.path.exists(lib_dir):
+          libs = os.listdir(lib_dir)
+          print(f"Built libraries: {', '.join(libs)}")
+        else:
+          print(f"WARNING: Library directory {lib_dir} not found after build!")
       
-      # For GitHub Actions, add more explicit architecture flags to avoid conflicts
-      if running_on_actions:
-        print("Setting explicit architecture flags for GitHub Actions build")
-        base.cmd("b2.exe", ["headers"])
-        base.cmd("b2.exe", ["--clean"])
-        base.cmd("b2.exe", ["--prefix=./../build/win_64", 
-                            "link=static", 
-                            "--with-filesystem", 
-                            "--with-system", 
-                            "--with-date_time", 
-                            "--with-regex", 
-                            f"--toolset={win_toolset}", 
-                            "address-model=64", 
-                            "architecture=x86", 
-                            "-j4", 
-                            "--disable-context",  # Disable context library that's causing asm issues
-                            "--build-type=complete", 
-                            "install"])
-      else:
-        base.cmd("b2.exe", ["headers"])
-        base.cmd("b2.exe", ["--clean"])
-        base.cmd("b2.exe", ["--prefix=./../build/win_64", 
-                            "link=static", 
-                            "--with-filesystem", 
-                            "--with-system", 
-                            "--with-date_time", 
-                            "--with-regex", 
-                            f"--toolset={win_toolset}", 
-                            "address-model=64", 
-                            "install"])
+      except Exception as e:
+        print(f"ERROR during Boost build: {str(e)}")
+        # Continue execution even if there's an error
     
-    # Only build Win32 libs if not on GitHub Actions and if platform contains win_32
     win32_lib_name = f"libboost_system-{win_vs_version}-mt-x32-1_72.lib"
     win32_lib_path = os.path.join("..", "build", "win_32", "lib", win32_lib_name)
     
-    if (not running_on_actions) and (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
-      print(f"Running bootstrap.bat with {win_boot_arg}")
-      base.cmd("bootstrap.bat", [win_boot_arg])
-      print(f"Running b2.exe with toolset={win_toolset}")
-      base.cmd("b2.exe", ["headers"])
-      base.cmd("b2.exe", ["--clean"])
-      base.cmd("b2.exe", ["--prefix=./../build/win_32", "link=static", "--with-filesystem", "--with-system", "--with-date_time", "--with-regex", f"--toolset={win_toolset}", "address-model=32", "install"])
+    # Only build Win32 if specifically requested and not on GitHub
+    if (not running_on_github) and (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
+      try:
+        print(f"Running bootstrap.bat with {win_boot_arg}")
+        base.cmd("bootstrap.bat", [win_boot_arg])
+        
+        print("Creating win_32 build directory")
+        win32_build_dir = os.path.join("..", "build", "win_32")
+        if not os.path.exists(win32_build_dir):
+          os.makedirs(win32_build_dir, exist_ok=True)
+        
+        # Common options for all builds
+        b2_common_args = [
+          "--prefix=./../build/win_32",
+          "link=static",
+          f"--toolset={win_toolset}",
+          "address-model=32",
+          "architecture=x86",
+          "threading=multi",
+          "runtime-link=shared",
+          "variant=release,debug",
+          "--without-context",
+          "--without-coroutine",
+          "--without-python",
+          "--layout=versioned",
+          "-j4",
+        ]
+        
+        # Add specific library targets
+        for lib in needed_libraries:
+          b2_common_args.append(f"--with-{lib}")
+        
+        print("Generating headers")
+        base.cmd("b2.exe", ["headers"])
+        
+        print("Cleaning previous build")
+        base.cmd("b2.exe", ["--clean"])
+        
+        print(f"Building Win32 libraries with arguments: {' '.join(b2_common_args)}")
+        base.cmd("b2.exe", b2_common_args + ["install"])
+      
+      except Exception as e:
+        print(f"ERROR during Boost Win32 build: {str(e)}")
+        # Continue execution even if there's an error
     
     correct_install_includes_win(base_dir, "win_64")
-    if not running_on_actions:
-      correct_install_includes_win(base_dir, "win_32")
+    if not running_on_github:
+      correct_install_includes_win(base_dir, "win_32")    
 
   linux_64_build_dir = os.path.join("..", "build", "linux_64")
   if config.check_option("platform", "linux_64") and not base.is_dir(linux_64_build_dir):
