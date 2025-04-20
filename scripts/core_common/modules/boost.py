@@ -65,6 +65,31 @@ using msvc ;
   print(f"Created Boost user config at {user_config_path}")
   return user_config_path
 
+def clean_boost_stage_dir():
+  """Clean the stage directory to prevent name clashes between different builds"""
+  stage_dir = os.path.join(".", "stage")
+  if os.path.exists(stage_dir):
+    print(f"Cleaning boost stage directory: {stage_dir}")
+    base.delete_dir_with_access_error(stage_dir)
+    if os.path.exists(stage_dir):  # If it still exists after delete attempt
+      print("Using alternative method to clean stage directory")
+      for root, dirs, files in os.walk(stage_dir, topdown=False):
+        for file in files:
+          try:
+            file_path = os.path.join(root, file)
+            os.chmod(file_path, 0o777)
+            os.remove(file_path)
+          except Exception as e:
+            print(f"Error removing file {file_path}: {e}")
+        for dir in dirs:
+          try:
+            dir_path = os.path.join(root, dir)
+            os.chmod(dir_path, 0o777)
+            os.rmdir(dir_path)
+          except Exception as e:
+            print(f"Error removing directory {dir_path}: {e}")
+  return
+
 def make():
   print("[fetch & build]: boost")
 
@@ -122,7 +147,10 @@ def make():
         if not os.path.exists(win64_build_dir):
           os.makedirs(win64_build_dir, exist_ok=True)
         
-        # Common options for all builds
+        # Clean any existing stage directory to prevent name clashes
+        clean_boost_stage_dir()
+          
+        # Common options for all builds - explicitly specify architecture and exclude unnecessary libraries
         b2_common_args = [
           "--prefix=./../build/win_64",
           "link=static",
@@ -135,8 +163,16 @@ def make():
           "--without-context",
           "--without-coroutine",
           "--without-python",
+          "--without-chrono",      # Exclude chrono which is causing name clash
+          "--without-atomic",      # Exclude atomic which often depends on chrono
+          "--without-thread",      # Exclude thread which depends on chrono
+          "--without-serialization", # Exclude other unnecessary libs
+          "--without-iostreams",
+          "--without-log",
+          "--without-math",
           "--layout=versioned",
           "-j4",
+          "--stagedir=./stage/x64", # Use architecture-specific stage directory
         ]
         
         # Add specific library targets
@@ -171,6 +207,7 @@ def make():
     # Only build Win32 if specifically requested and not on GitHub
     if (not running_on_github) and (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
       try:
+        # Only proceed with 32-bit build if 64-bit build is complete or skipped
         print(f"Running bootstrap.bat with {win_boot_arg}")
         base.cmd("bootstrap.bat", [win_boot_arg])
         
@@ -179,7 +216,10 @@ def make():
         if not os.path.exists(win32_build_dir):
           os.makedirs(win32_build_dir, exist_ok=True)
         
-        # Common options for all builds
+        # Clean any existing stage directory to prevent name clashes
+        clean_boost_stage_dir()
+          
+        # Common options for 32-bit build - explicitly specify architecture
         b2_common_args = [
           "--prefix=./../build/win_32",
           "link=static",
@@ -192,8 +232,16 @@ def make():
           "--without-context",
           "--without-coroutine",
           "--without-python",
+          "--without-chrono",      # Exclude chrono which is causing name clash
+          "--without-atomic",      # Exclude atomic which often depends on chrono
+          "--without-thread",      # Exclude thread which depends on chrono
+          "--without-serialization", # Exclude other unnecessary libs
+          "--without-iostreams",
+          "--without-log",
+          "--without-math",
           "--layout=versioned",
           "-j4",
+          "--stagedir=./stage/x32", # Use architecture-specific stage directory
         ]
         
         # Add specific library targets
