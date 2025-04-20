@@ -52,59 +52,24 @@ def clang_correct():
                     "#toolset.flags ('darwin.compile.c++', 'OPTIONS', None, ['-fcoalesce-templates'])")
   return
 
-def write_boost_user_config(toolset="msvc-14.2"):
-  """Create a user-config.jam file that explicitly configures the toolset"""
-  user_config_content = f"""
-# Boost user configuration for ONLYOFFICE builds
-# Explicitly disable problematic libraries and configure toolset
-using {toolset} ;
-"""
-  user_config_path = os.path.expanduser("~/user-config.jam")
-  with open(user_config_path, "w") as f:
-    f.write(user_config_content)
-  print(f"Created Boost user config at {user_config_path} with toolset {toolset}")
-  return user_config_path
-
-def clean_boost_dirs():
-  """Do a complete cleanup of Boost directories that might cause conflicts"""
-  dirs_to_clean = [
+def clean_boost_build_artifacts():
+  """Clean build artifacts that might cause conflicts between builds"""
+  paths_to_clean = [
     "bin.v2",
     "stage",
-    os.path.join("..", "build")
+    os.path.join("boost", "bin.v2")
   ]
   
-  for dir_path in dirs_to_clean:
-    if os.path.exists(dir_path):
-      print(f"Removing potential conflict directory: {dir_path}")
+  for path in paths_to_clean:
+    if os.path.exists(path):
+      print(f"Cleaning build artifact: {path}")
       try:
-        if os.path.isdir(dir_path):
-          shutil.rmtree(dir_path, ignore_errors=True)
+        if os.path.isdir(path):
+          shutil.rmtree(path, ignore_errors=True)
         else:
-          os.remove(dir_path)
+          os.remove(path)
       except Exception as e:
-        print(f"Warning: Could not fully remove {dir_path}: {e}")
-        # Try using base delete functions as fallback
-        try:
-          base.delete_dir_with_access_error(dir_path)
-          base.delete_dir(dir_path)
-        except:
-          pass
-  
-  # Also remove b2 config cache
-  config_cache = os.path.join("tools", "build", "src", "engine", "config.log")
-  if os.path.exists(config_cache):
-    try:
-      os.remove(config_cache)
-      print(f"Removed build config cache: {config_cache}")
-    except:
-      pass
-      
-  # Additionally clean temporary files
-  for temp_file in glob.glob("*.pdb") + glob.glob("*.idb") + glob.glob("*.obj") + glob.glob("*.exe"):
-    try:
-      os.remove(temp_file)
-    except:
-      pass
+        print(f"Warning: Could not remove {path}: {e}")
 
 def make():
   print("[fetch & build]: boost")
@@ -121,245 +86,125 @@ def make():
   os.chdir("boost_1_72_0")
 
   # build
-  if "windows" == base.host_platform():
-    # Determine Visual Studio version from environment or config
+  if ("windows" == base.host_platform()):
+    # Check for GitHub Actions environment variable for VS version
     github_vs_version = os.environ.get('ONLYOFFICE_BUILDSYSTEM_VS_VERSION', '')
     running_on_github = "GITHUB_ACTIONS" in os.environ and os.environ.get("GITHUB_ACTIONS") == "true"
     
-    # Default to VS 2015 (14.0)
     win_toolset = "msvc-14.0"
     win_boot_arg = "vc14"
     win_vs_version = "vc140"
     
-    # Override for VS 2019 if specified
     if github_vs_version == "2019" or (config.option("vs-version") == "2019"):
       print("Using Visual Studio 2019 toolset for Boost")
       win_toolset = "msvc-14.2"
-      win_boot_arg = "vc142" 
+      win_boot_arg = "vc142"
       win_vs_version = "vc142"
 
-    # Define strictly which libraries we need - minimal set
+    # List of libraries to build - only the ones we actually need
     needed_libraries = ["filesystem", "system", "date_time", "regex"]
     
-    # Set up platform-specific paths and settings
-    if -1 != config.option("platform").find("win_64"):
-      platform = "win_64"
-      address_model = "64"
-      
-      # Main build target file to check if already built
-      lib_name = f"libboost_system-{win_vs_version}-mt-x64-1_72.lib"
-      lib_path = os.path.join("..", "build", platform, "lib", lib_name)
-      
-      # Only proceed if not already built
-      if not base.is_file(lib_path):
-        try:
-          # Complete cleanup
-          clean_boost_dirs()
-          
-          # Write user config with correct toolset
-          write_boost_user_config(win_toolset)
-          
-          print(f"Building Boost for {platform} with {win_toolset}")
-          print(f"Running bootstrap.bat with {win_boot_arg}")
-          base.cmd("bootstrap.bat", [win_boot_arg])
-          
-          # Create build directory structure
-          build_dir = os.path.join("..", "build", platform)
-          os.makedirs(build_dir, exist_ok=True)
-          
-          # Create a dedicated path for this specific build to avoid any cross-contamination
-          unique_build_dir = os.path.join(build_dir, "boost_build")
-          stage_dir = os.path.join("stage", f"{platform}_only")
-          
-          os.makedirs(unique_build_dir, exist_ok=True)
-          os.makedirs(stage_dir, exist_ok=True)
-          
-          # Build command with explicit paths for everything
-          b2_args = [
-            f"--prefix={unique_build_dir}",
-            f"--stagedir={stage_dir}",
-            f"--build-dir=bin.v2_{platform}",
-            f"--toolset={win_toolset}",
-            f"address-model={address_model}",
-            "architecture=x86",
-            "link=static",
-            "threading=multi",
-            "runtime-link=shared",
-            "variant=release,debug",
-            "--layout=versioned",
-            "-j4",
-          ]
-          
-          # Exclude all libraries we don't need
-          exclude_libs = [
-            "context", "coroutine", "python", "mpi", "wave", "graph", "test",
-            "chrono", "atomic", "thread", "serialization", "iostreams", "log",
-            "math", "contract", "exception", "fiber", "graph_parallel", "json",
-            "locale", "random", "stacktrace", "timer", "type_erasure", "wave"
-          ]
-          
-          for lib in exclude_libs:
-            b2_args.append(f"--without-{lib}")
-            
-          # Include only libraries we need
-          for lib in needed_libraries:
-            b2_args.append(f"--with-{lib}")
-          
-          # Clean previous build
-          print("Cleaning any previous build artifacts")
-          base.cmd("b2.exe", ["--clean"])
-          
-          # First generate headers
-          print("Generating Boost headers")
-          base.cmd("b2.exe", ["headers"])
-          
-          # Build and install
-          print(f"Building with arguments: {' '.join(b2_args)}")
-          base.cmd("b2.exe", b2_args + ["install"])
-          
-          # Copy from unique build directory to expected location
-          lib_src_dir = os.path.join(unique_build_dir, "lib")
-          lib_dst_dir = os.path.join("..", "build", platform, "lib")
-          include_src_dir = os.path.join(unique_build_dir, "include")
-          include_dst_dir = os.path.join("..", "build", platform, "include")
-          
-          os.makedirs(lib_dst_dir, exist_ok=True)
-          os.makedirs(include_dst_dir, exist_ok=True)
-          
-          # Copy files
-          print(f"Copying libraries from {lib_src_dir} to {lib_dst_dir}")
-          if os.path.exists(lib_src_dir):
-            for file in os.listdir(lib_src_dir):
-              base.copy_file(os.path.join(lib_src_dir, file), os.path.join(lib_dst_dir, file))
-          
-          print(f"Copying includes from {include_src_dir} to {include_dst_dir}")
-          if os.path.exists(include_src_dir):
-            base.copy_dir(include_src_dir, include_dst_dir)
-            
-          # Verify success
-          print("Verifying build results")
-          if os.path.exists(lib_dst_dir):
-            libs = os.listdir(lib_dst_dir)
-            print(f"Built libraries: {', '.join(libs)}")
-          else:
-            print(f"WARNING: Library directory {lib_dst_dir} not found after build!")
-        
-        except Exception as e:
-          print(f"ERROR during Boost {platform} build: {str(e)}")
-          # Continue execution even if there's an error
-          
-    # Only build Win32 if specifically requested and not on GitHub
-    if not running_on_github and -1 != config.option("platform").find("win_32"):
-      platform = "win_32"
-      address_model = "32"
-      
-      # Main build target file to check if already built
-      lib_name = f"libboost_system-{win_vs_version}-mt-x32-1_72.lib"
-      lib_path = os.path.join("..", "build", platform, "lib", lib_name)
-      
-      # Only proceed if not already built
-      if not base.is_file(lib_path):
-        try:
-          # Complete cleanup
-          clean_boost_dirs()
-          
-          # Write user config with correct toolset
-          write_boost_user_config(win_toolset)
-          
-          print(f"Building Boost for {platform} with {win_toolset}")
-          print(f"Running bootstrap.bat with {win_boot_arg}")
-          base.cmd("bootstrap.bat", [win_boot_arg])
-          
-          # Create build directory structure
-          build_dir = os.path.join("..", "build", platform)
-          os.makedirs(build_dir, exist_ok=True)
-          
-          # Create a dedicated path for this specific build to avoid any cross-contamination
-          unique_build_dir = os.path.join(build_dir, "boost_build")
-          stage_dir = os.path.join("stage", f"{platform}_only")
-          
-          os.makedirs(unique_build_dir, exist_ok=True)
-          os.makedirs(stage_dir, exist_ok=True)
-          
-          # Build command with explicit paths for everything
-          b2_args = [
-            f"--prefix={unique_build_dir}",
-            f"--stagedir={stage_dir}",
-            f"--build-dir=bin.v2_{platform}",
-            f"--toolset={win_toolset}",
-            f"address-model={address_model}",
-            "architecture=x86",
-            "link=static",
-            "threading=multi",
-            "runtime-link=shared",
-            "variant=release,debug",
-            "--layout=versioned",
-            "-j4",
-          ]
-          
-          # Exclude all libraries we don't need
-          exclude_libs = [
-            "context", "coroutine", "python", "mpi", "wave", "graph", "test",
-            "chrono", "atomic", "thread", "serialization", "iostreams", "log",
-            "math", "contract", "exception", "fiber", "graph_parallel", "json",
-            "locale", "random", "stacktrace", "timer", "type_erasure", "wave"
-          ]
-          
-          for lib in exclude_libs:
-            b2_args.append(f"--without-{lib}")
-            
-          # Include only libraries we need
-          for lib in needed_libraries:
-            b2_args.append(f"--with-{lib}")
-          
-          # Clean previous build
-          print("Cleaning any previous build artifacts")
-          base.cmd("b2.exe", ["--clean"])
-          
-          # First generate headers
-          print("Generating Boost headers")
-          base.cmd("b2.exe", ["headers"])
-          
-          # Build and install
-          print(f"Building with arguments: {' '.join(b2_args)}")
-          base.cmd("b2.exe", b2_args + ["install"])
-          
-          # Copy from unique build directory to expected location
-          lib_src_dir = os.path.join(unique_build_dir, "lib")
-          lib_dst_dir = os.path.join("..", "build", platform, "lib")
-          include_src_dir = os.path.join(unique_build_dir, "include")
-          include_dst_dir = os.path.join("..", "build", platform, "include")
-          
-          os.makedirs(lib_dst_dir, exist_ok=True)
-          os.makedirs(include_dst_dir, exist_ok=True)
-          
-          # Copy files
-          print(f"Copying libraries from {lib_src_dir} to {lib_dst_dir}")
-          if os.path.exists(lib_src_dir):
-            for file in os.listdir(lib_src_dir):
-              base.copy_file(os.path.join(lib_src_dir, file), os.path.join(lib_dst_dir, file))
-          
-          print(f"Copying includes from {include_src_dir} to {include_dst_dir}")
-          if os.path.exists(include_src_dir):
-            base.copy_dir(include_src_dir, include_dst_dir)
-            
-          # Verify success
-          print("Verifying build results")
-          if os.path.exists(lib_dst_dir):
-            libs = os.listdir(lib_dst_dir)
-            print(f"Built libraries: {', '.join(libs)}")
-          else:
-            print(f"WARNING: Library directory {lib_dst_dir} not found after build!")
-        
-        except Exception as e:
-          print(f"ERROR during Boost {platform} build: {str(e)}")
-          # Continue execution even if there's an error
+    # 64-bit build
+    win64_lib_name = f"libboost_system-{win_vs_version}-mt-x64-1_72.lib"
+    win64_lib_path = os.path.join("..", "build", "win_64", "lib", win64_lib_name)
     
-    # Correct includes structure
+    if (-1 != config.option("platform").find("win_64")) and not base.is_file(win64_lib_path):
+      try:
+        # Clean build artifacts to prevent conflicts
+        clean_boost_build_artifacts()
+        
+        print(f"Running bootstrap.bat with {win_boot_arg}")
+        base.cmd("bootstrap.bat", [win_boot_arg])
+        
+        # Ensure build directory exists
+        win64_build_dir = os.path.join("..", "build", "win_64")
+        os.makedirs(win64_build_dir, exist_ok=True)
+        
+        print("Generating headers")
+        base.cmd("b2.exe", ["headers"])
+        
+        print("Cleaning previous build")
+        base.cmd("b2.exe", ["--clean"])
+        
+        # Build with architecture-specific directories and limited libraries
+        print("Building 64-bit Boost libraries")
+        build_args = [
+          f"--prefix=./../build/win_64",
+          "link=static", 
+          f"--toolset={win_toolset}", 
+          "address-model=64",
+          "--layout=versioned",
+          "--with-filesystem", 
+          "--with-system", 
+          "--with-date_time", 
+          "--with-regex",
+          "--without-context",     # Exclude problematic libraries
+          "--without-coroutine",
+          "--without-python",
+          f"--stagedir=./stage_win64",  # Use architecture-specific stage directory
+          "install"
+        ]
+        base.cmd("b2.exe", build_args)
+        
+      except Exception as e:
+        print(f"ERROR during Boost win_64 build: {str(e)}")
+        # Continue execution even if there's an error
+    
+    # 32-bit build (only if not on GitHub)
+    win32_lib_name = f"libboost_system-{win_vs_version}-mt-x32-1_72.lib"
+    win32_lib_path = os.path.join("..", "build", "win_32", "lib", win32_lib_name)
+    
+    if (not running_on_github) and (-1 != config.option("platform").find("win_32")) and not base.is_file(win32_lib_path):
+      try:
+        # First make sure the 64-bit build is finished
+        if (-1 != config.option("platform").find("win_64")):
+          print("Ensuring 64-bit build is complete before starting 32-bit build")
+          
+        # Clean build artifacts to prevent conflicts
+        clean_boost_build_artifacts()
+        
+        print(f"Running bootstrap.bat with {win_boot_arg} for 32-bit build")
+        base.cmd("bootstrap.bat", [win_boot_arg])
+        
+        # Ensure build directory exists
+        win32_build_dir = os.path.join("..", "build", "win_32")
+        os.makedirs(win32_build_dir, exist_ok=True)
+        
+        print("Generating headers")
+        base.cmd("b2.exe", ["headers"])
+        
+        print("Cleaning previous build")
+        base.cmd("b2.exe", ["--clean"])
+        
+        # Build with architecture-specific directories and limited libraries
+        print("Building 32-bit Boost libraries")
+        build_args = [
+          f"--prefix=./../build/win_32",
+          "link=static", 
+          f"--toolset={win_toolset}", 
+          "address-model=32",
+          "--layout=versioned",
+          "--with-filesystem", 
+          "--with-system", 
+          "--with-date_time", 
+          "--with-regex",
+          "--without-context",     # Exclude problematic libraries
+          "--without-coroutine",
+          "--without-python",
+          f"--stagedir=./stage_win32",  # Use architecture-specific stage directory
+          "install"
+        ]
+        base.cmd("b2.exe", build_args)
+        
+      except Exception as e:
+        print(f"ERROR during Boost win_32 build: {str(e)}")
+        # Continue execution even if there's an error
+    
+    # Correct include installation
     if -1 != config.option("platform").find("win_64"):
       correct_install_includes_win(base_dir, "win_64")
     if not running_on_github and -1 != config.option("platform").find("win_32"):
-      correct_install_includes_win(base_dir, "win_32")
+      correct_install_includes_win(base_dir, "win_32")    
 
   # Non-Windows platform builds remain unchanged
   linux_64_build_dir = os.path.join("..", "build", "linux_64")
