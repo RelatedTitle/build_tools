@@ -1,0 +1,497 @@
+name: Linux Build & Cache - ONLYOFFICE Core Libs
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-linux-x64:
+    name: Build Linux x64 Core Libraries
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      # --- Static Configuration ---
+      REQUIRED_PYTHON_VERSION: "3.9"
+      REQUIRED_QT_VERSION: "5.9.9"
+      REQUIRED_QT_ARCH: "gcc_64"
+      REQUIRED_JAVA_VERSION: "11"
+      OO_PLATFORM: "linux_64"
+      OO_MODULES: "core builder"
+      PARALLEL_JOBS: "4" # Recommended based on typical runner cores
+
+      # --- Checkout & Working Directory ---
+      # Define static relative paths from the workspace root
+      BUILD_TOOLS_DIR: "build_tools"
+      CORE_DIR: "core"
+      SDKJS_DIR: "sdkjs"
+      # Absolute path for steps needing it, relative to GITHUB_WORKSPACE
+      BUILD_TOOLS_WORKDIR: "${{ github.workspace }}/build_tools"
+
+      # --- Artifact & Cache Paths (Relative to GITHUB_WORKSPACE) ---
+      ARTIFACT_DIR_REL: "artifacts"
+      CORE_3RDPARTY_DIR_CACHE_REL: "core/Common/3dParty"
+      QT_INSTALL_BASE_DIR_CACHE_REL: "Qt_Install"
+      NPM_CACHE_DIR_HOST: "~/.npm"
+
+      # --- Caching Keys ---
+      QT_CACHE_KEY_PREFIX: "qt-cache-linux-v4"
+      THIRD_PARTY_CACHE_KEY_PREFIX: "3rdparty-deps-linux-v4"
+      NPM_CACHE_KEY_PREFIX: "npm-cache-linux-v3"
+      LINUX_DEPS_CACHE_KEY_PREFIX: "linux-apt-v2"
+
+      # --- Other ---
+      QT_MIRROR_URL: "https://mirrors.dotsrc.org/qtproject/"
+      QT_FALLBACK_MIRRORS: "https://qt-mirror.dannhauer.de/ https://mirrors.ocf.berkeley.edu/qt/ https://ftp.fau.de/qtproject/"
+
+    defaults:
+      run:
+        # Most steps related to the build process run from the build_tools directory
+        working-directory: ${{ env.BUILD_TOOLS_WORKDIR }}
+        shell: bash -e {0} # Use bash, exit on error
+
+    steps:
+      # --------------------------------------------------------------------
+      # 1. Checkout Repositories
+      # --------------------------------------------------------------------
+      - name: Checkout build_tools Repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.BUILD_TOOLS_DIR }} # Relative to workspace
+          fetch-depth: 1
+
+      - name: Checkout core Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/core
+          path: ${{ env.CORE_DIR }} # Relative to workspace
+          fetch-depth: 1
+
+      - name: Checkout sdkjs Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/sdkjs
+          path: ${{ env.SDKJS_DIR }} # Relative to workspace
+          fetch-depth: 1
+
+      - name: Display Initial Checkout Structure
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          echo "::group::Initial Checkout Structure (${{ github.workspace }})"
+          ls -laR . | head -n 50 # Show top level and first few subdirs
+          echo "::endgroup::"
+          echo "Default working directory for build steps: ${{ env.BUILD_TOOLS_WORKDIR }}"
+
+      # --------------------------------------------------------------------
+      # 2. Setup Basic Environment (Python, Node, Java)
+      # --------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.REQUIRED_PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.REQUIRED_JAVA_VERSION }}
+
+      # --------------------------------------------------------------------
+      # 3. Install System Dependencies (Mimicking deps.py)
+      # --------------------------------------------------------------------
+      - name: Define Linux Dependencies Cache Key
+        id: linux_deps_cache_props
+        working-directory: ${{ github.workspace }} # Doesn't matter where this runs
+        shell: bash
+        run: |
+          # Key based on runner OS and the prefix
+          Key="${{ runner.os }}-${{ env.LINUX_DEPS_CACHE_KEY_PREFIX }}"
+          echo "key=$Key" >> $GITHUB_OUTPUT
+          echo "Linux Dependencies Cache Key: $Key"
+
+      - name: Cache Linux Dependencies Timestamp
+        id: cache-linux-deps
+        uses: actions/cache@v4
+        with:
+          path: /opt/cache-marker-linux-deps.txt # Use a marker file
+          key: ${{ steps.linux_deps_cache_props.outputs.key }}
+
+      - name: Install Linux System Dependencies (if marker not cached)
+        if: steps.cache-linux-deps.outputs.cache-hit != 'true'
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          echo "::group::Installing Linux System Dependencies (Cache Miss)"
+          sudo apt-get update -qq
+          # Install packages listed in deps.py and potentially missing ones
+          # Grouped for slightly better readability
+          sudo apt-get install -y --no-install-recommends \
+            apt-transport-https \
+            autoconf \
+            build-essential \
+            ca-certificates \
+            cmake \
+            curl \
+            git \
+            p7zip-full \
+            wget \
+            lsb-release \
+            subversion \
+            gzip \
+            libtool \
+            yarn \
+            libglib2.0-dev \
+            libglu1-mesa-dev \
+            libgtk-3-dev \
+            libpulse-dev \
+            libasound2-dev \
+            libatspi2.0-dev \
+            libcups2-dev \
+            libdbus-1-dev \
+            libicu-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libx11-xcb-dev \
+            libxcb-util0-dev libxcb-keysyms1-dev libxcb-image0-dev libxcb-shm0-dev \
+            libxcb-icccm4-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-shape0-dev \
+            libxcb-randr0-dev libxcb-render-util0-dev libxcb-glx0-dev \
+            libxi-dev \
+            libxrender-dev \
+            libxss-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libsm-dev \
+            libice-dev \
+            libgl1-mesa-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libncurses5 \
+            libncurses6 \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev
+
+          # Install grunt-cli globally
+          echo "Installing grunt-cli globally..."
+          sudo npm install -g grunt-cli --no-progress
+
+          # Install pkg globally
+          echo "Installing pkg globally..."
+          sudo npm install -g pkg --no-progress
+
+          # Create the marker file after successful installation
+          sudo touch /opt/cache-marker-linux-deps.txt
+          echo "Linux dependencies installed."
+          echo "::endgroup::"
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096" # Increase memory for npm installs if needed
+
+      - name: Verify Dependencies
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          echo "::group::Verifying Dependencies"
+          echo "python3: $(python3 --version)"
+          echo "node: $(node --version)"
+          echo "npm: $(npm --version)"
+          echo "grunt: $(grunt --version || echo 'grunt-cli not found or not linked?')"
+          echo "pkg: $(pkg --version || echo 'pkg not found')"
+          echo "java: $(java -version 2>&1 | head -n 1)"
+          echo "gcc: $(gcc --version | head -n 1)"
+          echo "cmake: $(cmake --version | head -n 1)"
+          echo "7z: $(7z || echo '7z not found')"
+          dpkg -s libicu-dev > /dev/null || echo "::warning::libicu-dev not installed"
+          dpkg -s libxkbcommon-dev > /dev/null || echo "::warning::libxkbcommon-dev not installed"
+          # Add more checks as needed
+          echo "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # 4. Define & Restore Caches (Qt, 3rdParty, npm)
+      # --------------------------------------------------------------------
+      - name: Define Qt Paths and Cache Key
+        id: qt_paths_action
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          # Base directory where install-qt-action will place files (relative to workspace)
+          QtInstallBaseRel="${{ env.QT_INSTALL_BASE_DIR_CACHE_REL }}"
+          QtInstallBaseAbs="${GITHUB_WORKSPACE}/${QtInstallBaseRel}"
+          # The actual versioned directory path within the base
+          QtVersionDirRel="$QtInstallBaseRel/Qt/${{ env.REQUIRED_QT_VERSION }}"
+          QtInstallDirAbs="$QtInstallBaseAbs/Qt/${{ env.REQUIRED_QT_VERSION }}/${{ env.REQUIRED_QT_ARCH }}"
+          CacheKey="${{ runner.os }}-${{ env.QT_CACHE_KEY_PREFIX }}-${{ env.REQUIRED_QT_VERSION }}-${{ env.REQUIRED_QT_ARCH }}"
+          CacheRestoreKeyPrefix="${{ runner.os }}-${{ env.QT_CACHE_KEY_PREFIX }}-${{ env.REQUIRED_QT_VERSION }}-${{ env.REQUIRED_QT_ARCH }}-"
+
+          echo "qt_install_dir_abs=$QtInstallDirAbs" >> $GITHUB_OUTPUT
+          echo "qt_cache_path_rel=$QtVersionDirRel" >> $GITHUB_OUTPUT # Path used for caching
+          echo "qt_cache_key=$CacheKey" >> $GITHUB_OUTPUT
+          echo "qt_cache_restore_prefix=$CacheRestoreKeyPrefix" >> $GITHUB_OUTPUT
+
+          echo "Qt Cache Path (Relative to Workspace): $QtVersionDirRel"
+          echo "Expected Qt Install Dir (Absolute): $QtInstallDirAbs"
+          echo "Qt Cache Key: $CacheKey"
+
+      - name: Define 3rd Party Deps Cache Key
+        id: third_party_cache_props
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          # Hash module scripts relative to the build_tools directory within workspace
+          ModulesHash=$(find "${{ env.BUILD_TOOLS_DIR }}/scripts/core_common/modules" -type f -print0 2>/dev/null | sort -z | xargs -0 sha1sum | sha1sum | awk '{ print $1 }')
+          Key="${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-${ModulesHash}"
+          RestoreKeyPrefix="${{ runner.os }}-${{ env.THIRD_PARTY_CACHE_KEY_PREFIX }}-"
+          echo "key=$Key" >> $GITHUB_OUTPUT
+          echo "restore_prefix=$RestoreKeyPrefix" >> $GITHUB_OUTPUT
+          echo "3rd Party Cache Key: $Key"
+          # Use the static relative path defined in env
+          echo "3rd Party Cache Path (Relative): ${{ env.CORE_3RDPARTY_DIR_CACHE_REL }}"
+
+      - name: Define NPM Cache Key
+        id: npm_cache_props
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          LockFilesHash=$(find "${{ env.SDKJS_DIR }}/build" "${{ env.BUILD_TOOLS_DIR }}/scripts" -name 'package-lock.json' -print0 2>/dev/null | sort -z | xargs -0 sha1sum | sha1sum | awk '{ print $1 }')
+          Key="${{ runner.os }}-${{ env.NPM_CACHE_KEY_PREFIX }}-${LockFilesHash}"
+          RestoreKeyPrefix="${{ runner.os }}-${{ env.NPM_CACHE_KEY_PREFIX }}-"
+          echo "key=$Key" >> $GITHUB_OUTPUT
+          echo "restore_prefix=$RestoreKeyPrefix" >> $GITHUB_OUTPUT
+          echo "NPM Cache Key: $Key"
+          echo "NPM Cache Path (Host): ${{ env.NPM_CACHE_DIR_HOST }}"
+
+      - name: Restore Qt Installation Cache
+        id: cache-qt-install-action
+        uses: actions/cache@v4
+        with:
+          # Path relative to workspace
+          path: ${{ github.workspace }}/${{ steps.qt_paths_action.outputs.qt_cache_path_rel }}
+          key: ${{ steps.qt_paths_action.outputs.qt_cache_key }}
+          restore-keys: |
+            ${{ steps.qt_paths_action.outputs.qt_cache_restore_prefix }}
+
+      - name: Restore 3rd Party Dependencies Cache
+        uses: actions/cache@v4
+        id: cache-3rdparty
+        with:
+          # Path relative to workspace, using the corrected env var
+          path: ${{ github.workspace }}/${{ env.CORE_3RDPARTY_DIR_CACHE_REL }}
+          key: ${{ steps.third_party_cache_props.outputs.key }}
+          restore-keys: |
+            ${{ steps.third_party_cache_props.outputs.restore_prefix }}
+
+      - name: Restore NPM cache
+        uses: actions/cache@v4
+        id: cache-npm
+        with:
+          path: ${{ env.NPM_CACHE_DIR_HOST }}
+          key: ${{ steps.npm_cache_props.outputs.key }}
+          restore-keys: |
+            ${{ steps.npm_cache_props.outputs.restore_prefix }}
+
+      # --------------------------------------------------------------------
+      # 5. Install Qt (if not cached)
+      # --------------------------------------------------------------------
+      - name: Install Qt if cache miss
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          # Install relative to workspace root
+          dir: ${{ github.workspace }}/${{ env.QT_INSTALL_BASE_DIR_CACHE_REL }}
+          extra: "--base ${{ env.QT_MIRROR_URL }}"
+        id: qt-installation
+        continue-on-error: true
+
+      - name: Retry Qt Installation with Fallback Mirror
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true' && steps.qt-installation.outcome == 'failure'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          dir: ${{ github.workspace }}/${{ env.QT_INSTALL_BASE_DIR_CACHE_REL }}
+          extra: "--base ${{ env.QT_FALLBACK_MIRRORS }}"
+        id: qt-installation-fallback
+
+      - name: Verify Qt Installation and Add to PATH
+        # Run from default working dir (build_tools)
+        run: |
+          echo "::group::Verifying Qt Installation"
+          # Use the absolute path output from the 'Define Qt Paths' step
+          QT_INSTALL_DIR_ABS="${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}"
+          QT_BIN_DIR_ABS="$QT_INSTALL_DIR_ABS/bin"
+          if [ ! -d "$QT_INSTALL_DIR_ABS" ]; then
+            echo "::error::Qt install directory '$QT_INSTALL_DIR_ABS' not found after install/cache restore!"
+            echo "Listing contents of install base: ${{ github.workspace }}/${{ env.QT_INSTALL_BASE_DIR_CACHE_REL }}"
+            ls -la "${{ github.workspace }}/${{ env.QT_INSTALL_BASE_DIR_CACHE_REL }}" || echo "Base directory listing failed."
+            exit 1
+          fi
+          if [ ! -d "$QT_BIN_DIR_ABS" ]; then
+             echo "::error::Qt bin directory not found: '$QT_BIN_DIR_ABS'!"
+             ls -la "$QT_INSTALL_DIR_ABS" || echo "Install directory listing failed."
+             exit 1
+          fi
+          if [ ! -x "$QT_BIN_DIR_ABS/qmake" ]; then
+             echo "::error::qmake not found or not executable in '$QT_BIN_DIR_ABS'!"
+             ls -la "$QT_BIN_DIR_ABS" || echo "Bin directory listing failed."
+             exit 1
+          fi
+          echo "Qt installation directory seems correct."
+          echo "Adding Qt bin to PATH: $QT_BIN_DIR_ABS"
+          echo "$QT_BIN_DIR_ABS" >> $GITHUB_PATH
+          echo "Verifying qmake in PATH:"
+          which qmake
+          qmake -version
+          echo "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # 6. Configure & Build (Working Directory = build_tools)
+      # --------------------------------------------------------------------
+      - name: Configure ONLYOFFICE Build
+        run: |
+          echo "::group::Running configure.py"
+          python3 ./configure.py \
+            --platform ${{ env.OO_PLATFORM }} \
+            --module "${{ env.OO_MODULES }}" \
+            --update 0 \
+            --clean 1 \
+            --multiprocess ${{ env.PARALLEL_JOBS }} \
+            --qt-dir "${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}" # Pass absolute path
+          echo "--- Generated config file (config) ---"
+          cat config
+          echo "--------------------------------------"
+          echo "::endgroup::"
+
+      - name: Verify Qt Dir in Build Config
+        run: |
+          echo "::group::Verifying qt-dir in config file"
+          CONFIG_FILE="config"
+          EXPECTED_QT_DIR_ABS="${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}"
+          # Escape slashes for grep comparison
+          EXPECTED_QT_DIR_ESCAPED=$(echo "$EXPECTED_QT_DIR_ABS" | sed 's/\//\\\//g')
+
+          if grep -q "^qt-dir=\"$EXPECTED_QT_DIR_ESCAPED\"" "$CONFIG_FILE"; then
+             echo "qt-dir is correctly set in $CONFIG_FILE."
+          elif grep -q "^qt-dir=" "$CONFIG_FILE"; then
+             echo "::warning::qt-dir found in $CONFIG_FILE but does not match expected path: $(grep '^qt-dir=' $CONFIG_FILE)"
+             echo "Attempting to correct $CONFIG_FILE..."
+             # Use sed to replace the line, handling potential slashes in the path
+             sed -i 's|^qt-dir=.*|qt-dir="'"${EXPECTED_QT_DIR_ABS}"'"|' "$CONFIG_FILE"
+             echo "Corrected $CONFIG_FILE content:"
+             cat "$CONFIG_FILE"
+          else
+             echo "::warning::qt-dir not found in $CONFIG_FILE. Adding it."
+             echo "qt-dir=\"$EXPECTED_QT_DIR_ABS\"" >> "$CONFIG_FILE"
+             echo "Updated $CONFIG_FILE content:"
+             cat "$CONFIG_FILE"
+          fi
+          echo "::endgroup::"
+
+      - name: Build ONLYOFFICE Modules
+        env:
+          # Explicitly set for build scripts, though PATH should be sufficient
+          QTDIR: ${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}
+          JAVA_HOME: ${{ env.JAVA_HOME }} # Provided by setup-java
+        run: |
+          echo "::group::Running make.py"
+          echo "Current directory: $(pwd)"
+          echo "Using QTDIR=$QTDIR"
+          echo "Using JAVA_HOME=$JAVA_HOME"
+
+          python3 ./make.py
+
+          echo "::endgroup::"
+
+      # --------------------------------------------------------------------
+      # Step 7: Prepare and Upload Artifacts
+      # --------------------------------------------------------------------
+      - name: Prepare Build Artifacts
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          echo "::group::Preparing Artifacts"
+          ARTIFACT_DIR="${GITHUB_WORKSPACE}/${{ env.ARTIFACT_DIR_REL }}"
+          # Output path relative to build_tools dir where make.py ran
+          BUILD_OUTPUT_BASE="${GITHUB_WORKSPACE}/${{ env.BUILD_TOOLS_DIR }}/out/${{ env.OO_PLATFORM }}/onlyoffice"
+
+          CORE_SRC_DIR="${BUILD_OUTPUT_BASE}/core"
+          BUILDER_SRC_DIR="${BUILD_OUTPUT_BASE}/documentbuilder" # Linux uses lowercase
+
+          mkdir -p "${ARTIFACT_DIR}/core"
+          mkdir -p "${ARTIFACT_DIR}/documentbuilder"
+
+          echo "Copying Core artifacts from ${CORE_SRC_DIR}..."
+          if [ -d "${CORE_SRC_DIR}" ]; then
+            cp -a "${CORE_SRC_DIR}/." "${ARTIFACT_DIR}/core/" # Use -a to preserve links/permissions
+          else
+            echo "::error::Core output directory not found: ${CORE_SRC_DIR}"
+            exit 1
+          fi
+
+          echo "Copying Builder artifacts from ${BUILDER_SRC_DIR}..."
+          if [ -d "${BUILDER_SRC_DIR}" ]; then
+            cp -a "${BUILDER_SRC_DIR}/." "${ARTIFACT_DIR}/documentbuilder/"
+          else
+            # Fail the build if builder was requested but not found
+            if [[ "${{ env.OO_MODULES }}" == *"builder"* ]]; then
+               echo "::error::Builder output directory not found: ${BUILDER_SRC_DIR}"
+               exit 1
+            else
+               echo "::warning::Builder output directory not found (but not required by OO_MODULES)."
+            fi
+          fi
+
+          echo "Final Artifacts Directory Structure (${ARTIFACT_DIR}):"
+          ls -lR "${ARTIFACT_DIR}" | head -n 100 # Limit output
+          echo "::endgroup::"
+
+      - name: Upload ONLYOFFICE Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "onlyoffice-linux-sdk-${{ env.OO_PLATFORM }}"
+          path: ${{ github.workspace }}/${{ env.ARTIFACT_DIR_REL }} # Path relative to workspace
+          if-no-files-found: error # Fail if core artifacts are missing
+          retention-days: 7
+
+      # --------------------------------------------------------------------
+      # Step 8: Final Debug Dump
+      # --------------------------------------------------------------------
+      - name: Debug Dump Environment and Filesystem
+        if: always() # Always run this step
+        working-directory: ${{ github.workspace }} # Run from root
+        run: |
+          echo "::group::Final Debug Dump"
+          echo "Job Status: ${{ job.status }}"
+          echo "--- Cache Hits ---"
+          echo "Qt Cache Hit: ${{ steps.cache-qt-install-action.outputs.cache-hit }}"
+          echo "3rd Party Cache Hit: ${{ steps.cache-3rdparty.outputs.cache-hit }}"
+          echo "NPM Cache Hit: ${{ steps.cache-npm.outputs.cache-hit }}"
+          echo "Linux Deps Marker Cache Hit: ${{ steps.cache-linux-deps.outputs.cache-hit }}"
+          echo "--- Environment Variables (selected) ---"
+          printenv | grep -E '^(GITHUB_|RUNNER_|CI|QTDIR|JAVA_HOME|DEPOT_TOOLS_DIR|OO_|STEP_|AWS_)' | sort
+          echo "--- System PATH ---"
+          echo "$PATH" | tr ':' '\n'
+          echo "--- Workspace Structure (${{ github.workspace }}) ---"
+          ls -laR "${{ github.workspace }}" | head -n 200 # Limit output
+          echo "--- Artifact Dir (${{ github.workspace }}/${{ env.ARTIFACT_DIR_REL }}) ---"
+          if [ -d "${{ github.workspace }}/${{ env.ARTIFACT_DIR_REL }}" ]; then
+            ls -lR "${{ github.workspace }}/${{ env.ARTIFACT_DIR_REL }}" | head -n 100
+          else
+            echo "Artifact directory not found."
+          fi
+          echo "--- Qt Install Dir (${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}) ---"
+          if [ -d "${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}" ]; then
+            ls -l "${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}"
+            ls -l "${{ steps.qt_paths_action.outputs.qt_install_dir_abs }}/bin" | head -n 20
+          else
+            echo "Qt install directory not found."
+          fi
+          echo "--- 3rd Party Deps Dir (${{ github.workspace }}/${{ env.CORE_3RDPARTY_DIR_CACHE_REL }}) ---"
+          if [ -d "${{ github.workspace }}/${{ env.CORE_3RDPARTY_DIR_CACHE_REL }}" ]; then
+            ls -l "${{ github.workspace }}/${{ env.CORE_3RDPARTY_DIR_CACHE_REL }}" | head -n 50
+          else
+            echo "3rd party directory not found (or cache miss)."
+          fi
+          echo "::endgroup::"
