@@ -47,6 +47,8 @@ jobs:
       # --- Other Static Config ---
       JAVA_INSTALL_URL_BASE: https://github.com/AdoptOpenJDK/
       QT_MIRROR_URL: "https://mirrors.dotsrc.org/qtproject/"
+      # List of fallback Qt mirrors if the primary fails
+      QT_FALLBACK_MIRRORS: "https://qt-mirror.dannhauer.de/ https://mirrors.ocf.berkeley.edu/qt/ https://ftp.fau.de/qtproject/ https://mirrors.ukfast.co.uk/sites/qt.io/"
 
     defaults:
       run:
@@ -260,8 +262,52 @@ jobs:
         with:
           version: ${{ env.REQUIRED_QT_VERSION }}
           arch: ${{ env.REQUIRED_QT_ARCH }}
-          extra: "--base ${{ env.QT_MIRROR_URL }}"
+          extra: "--base ${{ env.QT_MIRROR_URL }} --attempts 3"
           dir: ${{ env.QT_INSTALL_BASE_DIR_REL }} # Install relative to workspace
+        id: qt-installation
+        continue-on-error: true
+
+      - name: Retry Qt Installation with Fallback Mirror 1
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true' && steps.qt-installation.outcome == 'failure'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          extra: "--base https://qt-mirror.dannhauer.de/ --attempts 3"
+          dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
+        id: qt-installation-fallback1
+        continue-on-error: true
+
+      - name: Retry Qt Installation with Fallback Mirror 2
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true' && steps.qt-installation.outcome == 'failure' && steps.qt-installation-fallback1.outcome == 'failure'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          extra: "--base https://mirrors.ocf.berkeley.edu/qt/ --attempts 3"
+          dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
+        id: qt-installation-fallback2
+        continue-on-error: true
+
+      - name: Retry Qt Installation with Fallback Mirror 3
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true' && steps.qt-installation.outcome == 'failure' && steps.qt-installation-fallback1.outcome == 'failure' && steps.qt-installation-fallback2.outcome == 'failure'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          extra: "--base https://ftp.fau.de/qtproject/ --attempts 3"
+          dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
+        id: qt-installation-fallback3
+        continue-on-error: true
+
+      - name: Final Qt Installation Attempt with Official Mirror
+        if: steps.cache-qt-install-action.outputs.cache-hit != 'true' && steps.qt-installation.outcome == 'failure' && steps.qt-installation-fallback1.outcome == 'failure' && steps.qt-installation-fallback2.outcome == 'failure' && steps.qt-installation-fallback3.outcome == 'failure'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.REQUIRED_QT_VERSION }}
+          arch: ${{ env.REQUIRED_QT_ARCH }}
+          extra: "--base https://master.qt.io/ --attempts 5"
+          dir: ${{ env.QT_INSTALL_BASE_DIR_REL }}
 
       - name: Verify Qt Installation and Add to PATH
         run: |
