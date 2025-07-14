@@ -39,9 +39,11 @@ jobs:
         run: |
           mkdir -p out
           docker run --rm \
-            -v $PWD/out:/build_tools/out \
+            -v $PWD:/build_tools \
+            -w /build_tools \
+            -e PYTHONPATH=/build_tools/scripts \
             onlyoffice-builder:latest \
-            python3 /build_tools/tools/linux/automate.py ${{ matrix.products }}
+            python3 tools/linux/automate.py ${{ matrix.products }}
 
       - name: List build output
         run: ls -R out
