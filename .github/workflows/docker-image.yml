@@ -41,7 +41,7 @@ jobs:
           docker run --rm \
             -v $PWD/out:/build_tools/out \
             onlyoffice-builder:latest \
-            ${{ matrix.products }}
+            /bin/bash -lc "cd tools/linux && ./automate.py ${{ matrix.products }}"
 
       - name: List build output
         run: ls -R out
