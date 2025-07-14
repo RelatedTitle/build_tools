@@ -1,0 +1,228 @@
+# .github/workflows/ci-build-and-release.yml
+name: 🏗️ ONLYOFFICE CI & Build
+
+# Trigger on push, PR, tag, schedule, or manually
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+  workflow_dispatch:             # Manual trigger
+
+# Global environment
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/onlyoffice-builder
+  OUT_DIR: ./out
+  CACHE_TTL: 7d                 # GitHub cache TTL
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────
+  # 1. Lint & Smoke-Test Build Tools
+  # ─────────────────────────────────────
+  lint-and-test:
+    name: 🧹 Lint & Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build_tools
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/build_tools
+          ref: master
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install deps
+        run: pip install -r tools/linux/requirements.txt
+
+      - name: Code style (flake8)
+        run: |
+          cd tools/linux
+          flake8 automate.py
+
+      - name: Smoke-run automation script
+        run: |
+          cd tools/linux
+          # ensure --help works
+          python automate.py --help
+
+  # ─────────────────────────────────────
+  # 2. Build & Push Builder Image (Docker)
+  # ─────────────────────────────────────
+  builder-image:
+    name: 🐳 Build & Push Builder Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup QEMU and Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=schedule,pattern=nightly
+
+      - name: Restore Docker cache
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-cache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            buildx-cache-${{ runner.os }}-
+
+      - name: Build & push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache,mode=max
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: table
+          exit-code: '1'           # fail on high severity
+          severity: CRITICAL,HIGH
+
+  # ─────────────────────────────────────
+  # 3. Build ONLYOFFICE Products Matrix
+  # ─────────────────────────────────────
+  build-products:
+    name: 🧩 Build ${{ matrix.products || 'all' }}
+    needs: [builder-image]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        products:
+          - ""               # build all
+          - desktop
+          - server
+          - builder
+          - "desktop server"
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Checkout build_tools
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/build_tools
+          ref: master
+
+      - name: Pull latest builder image
+        run: |
+          TAG=${{ github.ref_name || 'nightly' }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG || true
+
+      - name: Create output dir
+        run: mkdir -p ${{ env.OUT_DIR }}
+
+      - name: Run builder container
+        run: |
+          TAG=${{ github.ref_name || 'nightly' }}
+          docker run --rm \
+            --platform=linux/${{ matrix.arch }} \
+            -v $PWD:${{ env.OUT_DIR }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG \
+            ${{ matrix.products }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onlyoffice-${{ matrix.products || 'all' }}-${{ matrix.arch }}-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          retention-days: 7
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ env.OUT_DIR }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.products || 'all' }}-${{ matrix.arch }}.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.products || 'all' }}-${{ matrix.arch }}-${{ github.sha }}
+          path: sbom-${{ matrix.products || 'all' }}-${{ matrix.arch }}.spdx.json
+
+  # ─────────────────────────────────────
+  # 4. Publish GitHub Release on Tag
+  # ─────────────────────────────────────
+  release:
+    name: 🚀 Publish Release
+    needs: [build-products]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release Archives
+        run: |
+          mkdir -p release
+          for d in artifacts/onlyoffice-*; do
+            base=$(basename "$d")
+            tar czf "release/${base}.tar.gz" -C "$d" .
+          done
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.tar.gz, artifacts/sbom-*/sbom-*.spdx.json
+          generate_release_notes: true
+
+      - name: Cleanup release folder
+        run: rm -rf release
+
+  # ─────────────────────────────────────
+  # 5. Notify on Failure (Optional)
+  # ─────────────────────────────────────
+  notify:
+    name: 🔔 Notify on Failure
+    if: failure() && github.event_name != 'pull_request'
+    needs: [builder-image, build-products, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack Alert
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,workflow,job,ref
+          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK }}
