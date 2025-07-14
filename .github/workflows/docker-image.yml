@@ -1,5 +1,5 @@
 # .github/workflows/ci-test-build.yml
-name: ✅ ONLYOFFICE Build Test (Runner)
+name: ✅ ONLYOFFICE Build Test (with Docker)
 
 on:
   push:
@@ -21,42 +21,36 @@ jobs:
           - builder
           - "desktop server"
 
-    env:
-      OUT_DIR: out
-
     steps:
-      - name: Checkout ONLYOFFICE/build_tools
+      - name: Checkout build_tools
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/build_tools
           ref: master
 
-      - name: Set up Python 3.x
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      - name: Set up Node.js 16.x
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16.x'
-
-      - name: Install system deps
+      - name: Build local “builder” image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full build-essential
+          docker build \
+            --file Dockerfile \
+            --tag onlyoffice-builder:latest \
+            .
 
-      - name: Prepare output directory
-        run: mkdir -p $OUT_DIR
-
-      - name: Export PYTHONPATH
-        # so that `import base` picks up scripts/base.py
-        run: echo "PYTHONPATH=$PWD/scripts" >> $GITHUB_ENV
-
-      - name: Run ONLYOFFICE build for ${{ matrix.products || 'all' }}
+      - name: Run ONLYOFFICE build (${{ matrix.products || 'all' }})
         run: |
-          cd tools/linux
-          python3 automate.py ${{ matrix.products }} --out "$GITHUB_WORKSPACE/$OUT_DIR"
+          mkdir -p out
+          docker run --rm \
+            -v $PWD:/build_tools \
+            onlyoffice-builder:latest \
+            bash -lc "\
+              apt-get update && \
+              apt-get install -y curl python3 && \
+              curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+              apt-get install -y nodejs && \
+              ln -sf /usr/bin/python3 /usr/bin/python && \
+              export PYTHONPATH=/build_tools/scripts && \
+              cd /build_tools/tools/linux && \
+              python3 automate.py ${{ matrix.products }} \
+            "
 
       - name: List build output
-        run: ls -R $OUT_DIR
+        run: ls -R out
