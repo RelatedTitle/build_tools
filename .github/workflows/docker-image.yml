@@ -1,5 +1,5 @@
 # .github/workflows/ci-test-build.yml
-name: ✅ ONLYOFFICE Build Test
+name: ✅ ONLYOFFICE Build Test (Runner)
 
 on:
   push:
@@ -16,34 +16,47 @@ jobs:
       matrix:
         products:
           - ""               # all
-          - "desktop"
-          - "server"
-          - "builder"
+          - desktop
+          - server
+          - builder
           - "desktop server"
 
+    env:
+      OUT_DIR: out
+
     steps:
-      - name: Checkout build_tools
+      - name: Checkout ONLYOFFICE/build_tools
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/build_tools
           ref: master
 
-      - name: Build local “builder” image
-        run: |
-          docker build \
-            --file Dockerfile \
-            --tag onlyoffice-builder:latest \
-            .
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-      - name: Run build for ${{ matrix.products || 'all' }}
+      - name: Set up Node.js 16.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+
+      - name: Install system deps
         run: |
-          mkdir -p out
-          docker run --rm \
-            -v $PWD:/build_tools \
-            -w /build_tools \
-            -e PYTHONPATH=/build_tools/scripts \
-            onlyoffice-builder:latest \
-            python3 tools/linux/automate.py ${{ matrix.products }}
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full build-essential
+
+      - name: Prepare output directory
+        run: mkdir -p $OUT_DIR
+
+      - name: Export PYTHONPATH
+        # so that `import base` picks up scripts/base.py
+        run: echo "PYTHONPATH=$PWD/scripts" >> $GITHUB_ENV
+
+      - name: Run ONLYOFFICE build for ${{ matrix.products || 'all' }}
+        run: |
+          cd tools/linux
+          python3 automate.py ${{ matrix.products }} --out "$GITHUB_WORKSPACE/$OUT_DIR"
 
       - name: List build output
-        run: ls -R out
+        run: ls -R $OUT_DIR
