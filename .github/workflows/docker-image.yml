@@ -2,9 +2,13 @@ name: 🚀 ONLYOFFICE CI & Docker Build (Optimized)
 
 on:
   push:
-    branches: [ master, develop ]
+    branches:
+      - master
+      - develop
   pull_request:
-    branches: [ master, develop ]
+    branches:
+      - master
+      - develop
   workflow_dispatch:
 
 env:
@@ -12,10 +16,7 @@ env:
   CCACHE_MAX_SIZE: 10G
 
 jobs:
-  # ------------------------------------------------------------------------------
-  # Optional: detect which modules actually changed, and only build those.
-  # Outputs `changed_matrix` as a JSON array, e.g. '["server","desktop"]' or '["all"]'
-  # ------------------------------------------------------------------------------
+  # 1) Detect which modules changed
   detect-changes:
     runs-on: ubuntu-20.04
     outputs:
@@ -31,17 +32,20 @@ jobs:
             | grep -E 'tools/linux|core|server' \
             | awk '
                 /tools\/linux/ { m="all" }
-                /core/ { m="desktop" }
-                /server/ { m="server" }
+                /core/        { m="desktop" }
+                /server/      { m="server" }
               ' \
             | sort -u \
             | paste -sd, -)
-          [[ -z "$CHANGED" ]] && CHANGED="all"
-          echo "::set-output name=changed::[\"${CHANGED//,/\",\"}\"]"
+          if [ -z "$CHANGED" ]; then
+            CHANGED="all"
+          fi
+          # Format as JSON array: ["all"] or ["desktop","server"]
+          ITEMS=$(printf '"%s",' ${CHANGED//,/ })
+          ITEMS="[${ITEMS%,}]"
+          echo "::set-output name=changed::$ITEMS"
 
-  # ------------------------------------------------------------------------------
-  # Build the Docker image once (with Qt, Node, Python, ccache)
-  # ------------------------------------------------------------------------------
+  # 2) Build reusable Docker image
   build-image:
     needs: detect-changes
     runs-on: ubuntu-20.04
@@ -51,9 +55,9 @@ jobs:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 512
-          temp-reserve-mb: 100
-          swap-size-mb: 2048
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '2048'
           remove-dotnet: 'true'
           remove-android: 'true'
 
@@ -73,14 +77,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-onlyoffice-deps-
 
-      - name: Set up QEMU & Buildx
-        uses:
-          - docker/setup-qemu-action@v2
-          - docker/setup-buildx-action@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
       - name: Free up host disk space
         run: |
-          curl -fsSL $FREE_SPACE_SCRIPT | bash
+          curl -fsSL "${{ env.FREE_SPACE_SCRIPT }}" | bash
           sudo docker system prune --all --force || true
 
       - name: Build ONLYOFFICE builder image
@@ -89,15 +94,13 @@ jobs:
           IMAGE_TAG=onlyoffice-builder:latest
           docker build \
             --file Dockerfile \
-            --tag $IMAGE_TAG \
+            --tag "${IMAGE_TAG}" \
             --build-arg DEBIAN_FRONTEND=noninteractive \
-            --build-arg CCACHE_MAXSIZE=${{ env.CCACHE_MAX_SIZE }} \
+            --build-arg CCACHE_MAXSIZE="${{ env.CCACHE_MAX_SIZE }}" \
             .
-          echo "::set-output name=image-tag::$IMAGE_TAG"
+          echo "::set-output name=image-tag::${IMAGE_TAG}"
 
-  # ------------------------------------------------------------------------------
-  # Run parallel builds for each changed module (or all)
-  # ------------------------------------------------------------------------------
+  # 3) Run builds in parallel for changed modules
   build-products:
     needs: build-image
     runs-on: ubuntu-20.04
@@ -109,9 +112,9 @@ jobs:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 512
-          temp-reserve-mb: 100
-          swap-size-mb: 2048
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '2048'
           remove-dotnet: 'true'
           remove-android: 'true'
 
@@ -138,14 +141,14 @@ jobs:
 
       - name: Free up host disk space
         run: |
-          curl -fsSL $FREE_SPACE_SCRIPT | bash
+          curl -fsSL "${{ env.FREE_SPACE_SCRIPT }}" | bash
           sudo docker system prune --all --force || true
 
-      - name: Run ONLYOFFICE build (${{ matrix.product || 'all' }})
+      - name: Run ONLYOFFICE build (${{ matrix.product }})
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/build_tools" \
-            ${{ needs.build-image.outputs.image-tag }} \
+            "${{ needs.build-image.outputs.image-tag }}" \
             bash -lc "\
               export CC='ccache gcc' CXX='ccache g++' && \
               ccache -s && \
@@ -162,5 +165,5 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: onlyoffice-${{ matrix.product || 'all' }}-output
+          name: onlyoffice-${{ matrix.product }}-output
           path: out/
