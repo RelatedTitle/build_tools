@@ -1,4 +1,4 @@
-name: ONLYOFFICE Docker CI with Free-Space Cleanup
+name: 🚀 ONLYOFFICE CI & Docker Build (Optimized)
 
 on:
   push:
@@ -9,25 +9,74 @@ on:
 
 env:
   FREE_SPACE_SCRIPT: https://raw.githubusercontent.com/apache/arrow/refs/heads/main/ci/scripts/util_free_space.sh
+  CCACHE_MAX_SIZE: 10G
 
 jobs:
-  # 1) Build the “builder” image once, after pruning free space.
+  # ------------------------------------------------------------------------------
+  # Optional: detect which modules actually changed, and only build those.
+  # Outputs `changed_matrix` as a JSON array, e.g. '["server","desktop"]' or '["all"]'
+  # ------------------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-20.04
+    outputs:
+      changed-matrix: ${{ steps.set-matrix.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine changed products
+        id: set-matrix
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
+            | grep -E 'tools/linux|core|server' \
+            | awk '
+                /tools\/linux/ { m="all" }
+                /core/ { m="desktop" }
+                /server/ { m="server" }
+              ' \
+            | sort -u \
+            | paste -sd, -)
+          [[ -z "$CHANGED" ]] && CHANGED="all"
+          echo "::set-output name=changed::[\"${CHANGED//,/\",\"}\"]"
+
+  # ------------------------------------------------------------------------------
+  # Build the Docker image once (with Qt, Node, Python, ccache)
+  # ------------------------------------------------------------------------------
   build-image:
+    needs: detect-changes
     runs-on: ubuntu-20.04
     outputs:
       image-tag: ${{ steps.build.outputs.image-tag }}
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          temp-reserve-mb: 100
+          swap-size-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+
       - name: Checkout build_tools
         uses: actions/checkout@v4
         with:
           repository: ONLYOFFICE/build_tools
           ref: master
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+      - name: Cache Qt & ccache
+        uses: actions/cache@v3
+        with:
+          path: |
+            tools/linux/qt_build
+            ~/.ccache
+          key: ${{ runner.os }}-onlyoffice-deps-${{ hashFiles('tools/linux/**') }}
+          restore-keys: |
+            ${{ runner.os }}-onlyoffice-deps-
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - name: Set up QEMU & Buildx
+        uses:
+          - docker/setup-qemu-action@v2
+          - docker/setup-buildx-action@v2
 
       - name: Free up host disk space
         run: |
@@ -42,25 +91,30 @@ jobs:
             --file Dockerfile \
             --tag $IMAGE_TAG \
             --build-arg DEBIAN_FRONTEND=noninteractive \
+            --build-arg CCACHE_MAXSIZE=${{ env.CCACHE_MAX_SIZE }} \
             .
           echo "::set-output name=image-tag::$IMAGE_TAG"
 
-  # 2) For each product (all, desktop, server, builder, desktop+server), mount the full workspace 
-  #    so compiled artifacts go onto the runner’s FS, *then* free space again before compile.
+  # ------------------------------------------------------------------------------
+  # Run parallel builds for each changed module (or all)
+  # ------------------------------------------------------------------------------
   build-products:
     needs: build-image
     runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
       matrix:
-        product:
-          - ""               # means “all”
-          - desktop
-          - server
-          - builder
-          - "desktop server"
-
+        product: ${{ fromJson(needs.detect-changes.outputs.changed-matrix) }}
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          temp-reserve-mb: 100
+          swap-size-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+
       - name: Checkout build_tools
         uses: actions/checkout@v4
         with:
@@ -71,6 +125,16 @@ jobs:
         run: |
           rm -rf out
           mkdir out
+
+      - name: Cache Qt & ccache
+        uses: actions/cache@v3
+        with:
+          path: |
+            tools/linux/qt_build
+            ~/.ccache
+          key: ${{ runner.os }}-onlyoffice-deps-${{ hashFiles('tools/linux/**') }}
+          restore-keys: |
+            ${{ runner.os }}-onlyoffice-deps-
 
       - name: Free up host disk space
         run: |
@@ -83,9 +147,14 @@ jobs:
             -v "${{ github.workspace }}:/build_tools" \
             ${{ needs.build-image.outputs.image-tag }} \
             bash -lc "\
+              export CC='ccache gcc' CXX='ccache g++' && \
+              ccache -s && \
               cd /build_tools/tools/linux && \
-              python3 automate.py ${matrix.product} \
+              python3 automate.py ${matrix.product} --jobs=$(nproc) \
             "
+
+      - name: Show ccache stats
+        run: ccache -s || true
 
       - name: List build output
         run: ls -R out
