@@ -1,21 +1,60 @@
-# .github/workflows/ci-test-build.yml
-name: ✅ ONLYOFFICE Build Test (with Docker)
+name: ONLYOFFICE Docker CI with Free-Space Cleanup
 
 on:
   push:
     branches: [ master, develop ]
   pull_request:
     branches: [ master, develop ]
+  workflow_dispatch:
+
+env:
+  FREE_SPACE_SCRIPT: https://raw.githubusercontent.com/apache/arrow/refs/heads/main/ci/scripts/util_free_space.sh
 
 jobs:
+  # 1) Build the “builder” image once, after pruning free space.
+  build-image:
+    runs-on: ubuntu-20.04
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
+    steps:
+      - name: Checkout build_tools
+        uses: actions/checkout@v4
+        with:
+          repository: ONLYOFFICE/build_tools
+          ref: master
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Free up host disk space
+        run: |
+          curl -fsSL $FREE_SPACE_SCRIPT | bash
+          sudo docker system prune --all --force || true
+
+      - name: Build ONLYOFFICE builder image
+        id: build
+        run: |
+          IMAGE_TAG=onlyoffice-builder:latest
+          docker build \
+            --file Dockerfile \
+            --tag $IMAGE_TAG \
+            --build-arg DEBIAN_FRONTEND=noninteractive \
+            .
+          echo "::set-output name=image-tag::$IMAGE_TAG"
+
+  # 2) For each product (all, desktop, server, builder, desktop+server), mount the full workspace 
+  #    so compiled artifacts go onto the runner’s FS, *then* free space again before compile.
   build-products:
-    name: 🛠️ Build ${{ matrix.products || 'all' }}
-    runs-on: ubuntu-latest
+    needs: build-image
+    runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
       matrix:
-        products:
-          - ""               # all
+        product:
+          - ""               # means “all”
           - desktop
           - server
           - builder
@@ -28,29 +67,31 @@ jobs:
           repository: ONLYOFFICE/build_tools
           ref: master
 
-      - name: Build local “builder” image
+      - name: Prepare output directory
         run: |
-          docker build \
-            --file Dockerfile \
-            --tag onlyoffice-builder:latest \
-            .
+          rm -rf out
+          mkdir out
 
-      - name: Run ONLYOFFICE build (${{ matrix.products || 'all' }})
+      - name: Free up host disk space
         run: |
-          mkdir -p out
+          curl -fsSL $FREE_SPACE_SCRIPT | bash
+          sudo docker system prune --all --force || true
+
+      - name: Run ONLYOFFICE build (${{ matrix.product || 'all' }})
+        run: |
           docker run --rm \
-            -v $PWD:/build_tools \
-            onlyoffice-builder:latest \
+            -v "${{ github.workspace }}:/build_tools" \
+            ${{ needs.build-image.outputs.image-tag }} \
             bash -lc "\
-              apt-get update && \
-              apt-get install -y curl python3 && \
-              curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-              apt-get install -y nodejs && \
-              ln -sf /usr/bin/python3 /usr/bin/python && \
-              export PYTHONPATH=/build_tools/scripts && \
               cd /build_tools/tools/linux && \
-              python3 automate.py ${{ matrix.products }} \
+              python3 automate.py ${matrix.product} \
             "
 
       - name: List build output
         run: ls -R out
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: onlyoffice-${{ matrix.product || 'all' }}-output
+          path: out/
